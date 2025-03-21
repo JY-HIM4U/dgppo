@@ -1,5 +1,5 @@
 import functools as ft
-from typing import Callable
+from typing import Callable, Optional
 
 import ipdb
 import jax
@@ -43,6 +43,7 @@ class World:
         collision_force: float = Default.COLLISION_FORCE,
         torque_constraint_force: float = Default.TORQUE_CONSTRAINT_FORCE,
         contact_margin: float = 1e-3,
+        num_agents: int = 3  # Add parameter to pass number of agents to World
     ):
         # world dims: no boundaries if none
         self._x_semidim = x_semidim
@@ -74,6 +75,8 @@ class World:
             {Line, Box},
             {Box, Box},
         ]
+
+        self.num_agents = num_agents  # Store number of agents as instance variable
 
     @ft.partial(jax.jit, static_argnames=["self"])
     def step(self, entities: list[Entity]):
@@ -138,9 +141,11 @@ class World:
         new_pos_y = new_pos[..., 1]
 
         if self._x_semidim is not None:
-            new_pos_x = new_pos_x.clip(-self._x_semidim, self._x_semidim)
+            # new_pos_x = new_pos_x.clip(-self._x_semidim, self._x_semidim)
+            new_pos_x = new_pos_x.clip(0, self._x_semidim)
         if self._y_semidim is not None:
-            new_pos_y = new_pos_y.clip(-self._y_semidim, self._y_semidim)
+            # new_pos_y = new_pos_y.clip(-self._y_semidim, self._y_semidim)
+            new_pos_y = new_pos_y.clip(0, self._y_semidim)
 
         new_pos = jnp.stack([new_pos_x, new_pos_y], axis=-1)
         return entity.withstate(pos=new_pos, vel=vel)
@@ -275,7 +280,7 @@ class World:
             object_length = obj.shape.length
 
             # Calculate the positions of the vertices
-            base_angles = jnp.array([0, 2 * jnp.pi / 3, 4 * jnp.pi / 3])
+            base_angles = jnp.array([i * 2 * jnp.pi / self.num_agents for i in range(self.num_agents)])
             vertices = object_pos + object_length * jnp.stack(
                 [jnp.cos(object_angle + base_angles), jnp.sin(object_angle + base_angles)], axis=-1
             )
@@ -285,7 +290,7 @@ class World:
             vertex_pos = vertices[agent_index]
 
             # Calculate spring force for this agent
-            stiffness = 1.0
+            stiffness = 10.0
             delta_pos = agent_pos - vertex_pos
             dist = jnp.linalg.norm(delta_pos)
 

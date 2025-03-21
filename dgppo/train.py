@@ -5,7 +5,7 @@ import ipdb
 import numpy as np
 import wandb
 import yaml
-import jax
+
 from dgppo.algo import make_algo
 from dgppo.env import make_env
 from dgppo.trainer.trainer import Trainer
@@ -24,7 +24,6 @@ def train(args):
         os.environ["WANDB_MODE"] = "disabled"
         os.environ["JAX_DISABLE_JIT"] = "True"
 
-    
     # create environments
     env = make_env(
         env_id=args.env,
@@ -32,7 +31,6 @@ def train(args):
         num_obs=args.obs,
         n_rays=args.n_rays,
         full_observation=args.full_observation,
-        local_only=args.localonly,
     )
     env_test = make_env(
         env_id=args.env,
@@ -40,10 +38,8 @@ def train(args):
         num_obs=args.obs,
         n_rays=args.n_rays,
         full_observation=args.full_observation,
-        local_only=args.localonly,
     )
 
-    
     # create algorithm
     algo = make_algo(
         algo=args.algo,
@@ -129,7 +125,7 @@ def train(args):
         with open(f"{log_dir}/config.yaml", "w") as f:
             yaml.dump(args, f)
             yaml.dump(algo.config, f)
-    
+
     # start training
     trainer.train()
 
@@ -174,17 +170,13 @@ def main():
     parser.add_argument("--rnn-step", type=int, default=16)
 
     # default arguments
-    parser.add_argument("--n-env-train", type=int, default=int(128/4))
-    parser.add_argument("--batch-size", type=int, default=int(16384/4))
+    parser.add_argument("--n-env-train", type=int, default=128)
+    parser.add_argument("--batch-size", type=int, default=16384)
     parser.add_argument("--n-env-test", type=int, default=32)
     parser.add_argument("--log-dir", type=str, default="./logs")
     parser.add_argument("--eval-interval", type=int, default=50)
     parser.add_argument("--eval-epi", type=int, default=1)
     parser.add_argument("--save-interval", type=int, default=50)
-
-    # Add this to the parser arguments in train.py
-    parser.add_argument('--localonly', action='store_true', default=False,
-                        help='If True, agents only have local information without global object state')
 
     args = parser.parse_args()
     train(args)

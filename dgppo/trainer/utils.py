@@ -65,6 +65,7 @@ def test_rollout(
         stochastic: bool = False
 ):
     key_x0, key = jax.random.split(key)
+
     init_graph = env.reset(key_x0)
 
     def body_(data, key_):

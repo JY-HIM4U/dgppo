@@ -3,8 +3,8 @@ from typing import Optional
 from .base import MultiAgentEnv
 from dgppo.env.mpe import MPETarget, MPESpread, MPELine, MPEFormation, MPECorridor, MPEConnectSpread
 from dgppo.env.lidar_env import LidarSpread, LidarTarget, LidarLine, LidarBicycleTarget
-from dgppo.env.vmas import VMASWheel, VMASReverseTransport
-
+from dgppo.env.vmas import VMASWheel, VMASReverseTransport, VMASCollaborativeTransport
+from dgppo.env.vmas_lidar import VMASCollaborativeTransportLidar
 
 ENV = {
 
@@ -20,6 +20,8 @@ ENV = {
     'LidarBicycleTarget': LidarBicycleTarget,
     'VMASReverseTransport': VMASReverseTransport,
     'VMASWheel': VMASWheel,
+    'VMASCollaborativeTransport': VMASCollaborativeTransport,
+    'VMASCollaborativeTransportLidar': VMASCollaborativeTransportLidar
 }
 
 
@@ -33,6 +35,8 @@ def make_env(
         full_observation: bool = False,
         num_obs: Optional[int] = None,
         n_rays: Optional[int] = None,
+        local_only: bool = False,
+        **kwargs
 ) -> MultiAgentEnv:
     assert env_id in ENV.keys(), f'Environment {env_id} not implemented.'
     params = ENV[env_id].PARAMS
@@ -44,6 +48,15 @@ def make_env(
     if full_observation:
         area_size = params['default_area_size']
         params['comm_radius'] = area_size * 10
+    if env_id == "VMASCollaborativeTransportLidar":
+        from dgppo.env.vmas_lidar.vmas_collaborative_transport_lidar import VMASCollaborativeTransportLidar
+        return VMASCollaborativeTransportLidar(
+            num_agents=num_agents,
+            n_obs=num_obs,
+            params={"n_rays": n_rays},
+            local_only=local_only,
+            **kwargs
+        )
     return ENV[env_id](
         num_agents=num_agents,
         area_size=None,

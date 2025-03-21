@@ -46,7 +46,7 @@ class InforMARL(Algorithm):
             clip_eps: float = 0.25,
             gae_lambda: float = 0.95,
             coef_ent: float = 1e-2,
-            max_grad_norm: float = 2.0,
+            max_grad_norm: float = 4.0,
             seed: int = 0,
             use_rnn: bool = True,
             rnn_layers: int = 1,

@@ -5,15 +5,14 @@ import ipdb
 import numpy as np
 import wandb
 import yaml
-import jax
+
 from dgppo.algo import make_algo
 from dgppo.env import make_env
 from dgppo.trainer.trainer import Trainer
 from dgppo.trainer.utils import is_connected
 
-
-def train(args):
-    print(f"> Running train.py {args}")
+def train_continuous(args):
+    print(f"> Running train_continuous.py {args}")
 
     # set up environment variables and seed
     os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
@@ -24,7 +23,6 @@ def train(args):
         os.environ["WANDB_MODE"] = "disabled"
         os.environ["JAX_DISABLE_JIT"] = "True"
 
-    
     # create environments
     env = make_env(
         env_id=args.env,
@@ -32,7 +30,6 @@ def train(args):
         num_obs=args.obs,
         n_rays=args.n_rays,
         full_observation=args.full_observation,
-        local_only=args.localonly,
     )
     env_test = make_env(
         env_id=args.env,
@@ -40,10 +37,8 @@ def train(args):
         num_obs=args.obs,
         n_rays=args.n_rays,
         full_observation=args.full_observation,
-        local_only=args.localonly,
     )
 
-    
     # create algorithm
     algo = make_algo(
         algo=args.algo,
@@ -79,6 +74,23 @@ def train(args):
         cbf_schedule=not args.no_cbf_schedule,
         cost_schedule=args.cost_schedule
     )
+
+    # Load pre-trained model
+    if args.pretrained_path:
+        # Construct the path to the model directory
+        model_path = os.path.join(args.pretrained_path, "models")
+        if args.pretrained_step is None:
+            models = os.listdir(model_path)
+            step = max([int(model) for model in models if model.isdigit()])
+        else:
+            step = args.pretrained_step
+
+        # Construct the path to the actor.pkl file
+        model_file = os.path.join(model_path, f"{step}", "actor.pkl")
+        print(f"Attempting to load model from: {model_file}")  # Debugging statement
+        if not os.path.exists(model_file):
+            raise FileNotFoundError(f"Pre-trained model file not found: {model_file}")
+        algo.load(model_path, step)
 
     # Generate a 4 letter random identifier for the run.
     rng_ = np.random.default_rng()
@@ -129,10 +141,9 @@ def train(args):
         with open(f"{log_dir}/config.yaml", "w") as f:
             yaml.dump(args, f)
             yaml.dump(algo.config, f)
-    
+
     # start training
     trainer.train()
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -174,22 +185,21 @@ def main():
     parser.add_argument("--rnn-step", type=int, default=16)
 
     # default arguments
-    parser.add_argument("--n-env-train", type=int, default=int(128/4))
-    parser.add_argument("--batch-size", type=int, default=int(16384/4))
+    parser.add_argument("--n-env-train", type=int, default=128)
+    parser.add_argument("--batch-size", type=int, default=16384)
     parser.add_argument("--n-env-test", type=int, default=32)
     parser.add_argument("--log-dir", type=str, default="./logs")
     parser.add_argument("--eval-interval", type=int, default=50)
     parser.add_argument("--eval-epi", type=int, default=1)
     parser.add_argument("--save-interval", type=int, default=50)
 
-    # Add this to the parser arguments in train.py
-    parser.add_argument('--localonly', action='store_true', default=False,
-                        help='If True, agents only have local information without global object state')
+    # new arguments for continuous training
+    parser.add_argument("--pretrained-path", type=str, required=True, help="Path to the pre-trained model")
+    parser.add_argument("--pretrained-step", type=int, default=None, help="Step of the pre-trained model to load")
 
     args = parser.parse_args()
-    train(args)
-
+    train_continuous(args)
 
 if __name__ == "__main__":
     with ipdb.launch_ipdb_on_exception():
-        main()
+        main() 

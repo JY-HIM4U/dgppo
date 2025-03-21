@@ -40,7 +40,6 @@ class EdgeBlock(NamedTuple):
         e_sends = merge01(jnp.where(edge_mask, id_send_rep, pad_id))
         e_edge_feats = merge01(self.edge_feats)
         assert e_recvs.shape == e_sends.shape == e_edge_feats.shape[:1] == (self.n_edges,)
-
         return e_edge_feats, e_recvs, e_sends
 
 
