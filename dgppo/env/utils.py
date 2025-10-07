@@ -10,7 +10,7 @@ from jax.lax import while_loop
 
 from ..utils.typing import Array, Radius, BoolScalar, Pos, State, Action, PRNGKey
 from ..utils.utils import merge01
-from dgppo.env.obstacle import Obstacle, Rectangle, Cuboid, Sphere
+from dgppo.env.obstacle import Obstacle, Rectangle, Cuboid, Sphere, Circle
 
 
 def RK4_step(x_dot_fn: Callable, x: State, u: Action, dt: float) -> Array:
@@ -47,13 +47,15 @@ def lqr(
 
 
 def get_lidar(start_point: Pos, obstacles: Obstacle, num_beams: int, sense_range: float, max_returns: int = 32):
-    if isinstance(obstacles, Rectangle):
+    if isinstance(obstacles, Rectangle) or isinstance(obstacles, Circle):
+        # For both Rectangle and Circle (2D obstacles), use the same 2D ray pattern
         thetas = jnp.linspace(-np.pi, np.pi - 2 * np.pi / num_beams, num_beams)
         starts = start_point[None, :].repeat(num_beams, axis=0)
         ends = jnp.stack(
             [starts[..., 0] + jnp.cos(thetas) * sense_range, starts[..., 1] + jnp.sin(thetas) * sense_range],
             axis=-1)
     elif isinstance(obstacles, Cuboid) or isinstance(obstacles, Sphere):
+        # 3D obstacles use a spherical pattern
         thetas = jnp.linspace(-np.pi / 2 + 2 * np.pi / num_beams, np.pi / 2 - 2 * np.pi / num_beams, num_beams // 2)
         phis = jnp.linspace(-np.pi, np.pi - 2 * np.pi / num_beams, num_beams)
         starts = start_point[None, :].repeat(thetas.shape[0] * phis.shape[0] + 2, axis=0)
@@ -73,7 +75,8 @@ def get_lidar(start_point: Pos, obstacles: Obstacle, num_beams: int, sense_range
                                 start_point[None, :] + jnp.array([[0., 0., sense_range]]),
                                 start_point[None, :] + jnp.array([[0., 0., -sense_range]])], axis=0)
     else:
-        raise NotImplementedError
+        raise NotImplementedError(f"Obstacle type {type(obstacles)} not supported")
+    
     sensor_data = raytracing(starts, ends, obstacles, max_returns)
 
     return sensor_data
@@ -143,6 +146,7 @@ def get_node_goal_rng(
         n: int,
         min_dist: float,
         obstacles: Obstacle = None,
+        min_travel: float = None,
         side_length_y: float = None,
         max_travel: float = None,
         side_length_z: float = None
@@ -164,40 +168,64 @@ def get_node_goal_rng(
         i_iter, this_key, _, all_nodes = reset_input
         use_key, this_key = jr.split(this_key, 2)
         i_iter += 1
-        return i_iter, this_key, jr.uniform(use_key, (dim,), minval=0, maxval=max_side), all_nodes
+        return i_iter, this_key, jr.uniform(use_key, (dim,), minval=min_dist, maxval=max_side-min_dist), all_nodes
 
     def non_valid_node(reset_input: Tuple[int, Array, Array, Array]):  # key, node, all nodes
         i_iter, _, node, all_nodes = reset_input
-        dist_min = jnp.linalg.norm(all_nodes - node, axis=1).min()
-        collide = dist_min <= min_dist
-        inside = inside_obstacles(node, obstacles, r=min_dist / 2)
+        # Only check against nodes that have been placed (non-zero)
+        valid_nodes = jnp.any(all_nodes != 0, axis=1)
+        # Calculate distances only to valid nodes
+        distances = jnp.linalg.norm(all_nodes - node, axis=1)
+        # Set distances to invalid nodes to a large value
+        distances = jnp.where(valid_nodes, distances, jnp.ones_like(distances) * 1e10)
+        dist_min = jnp.min(distances)
+        collide = dist_min < min_dist
+        inside = inside_obstacles(node, obstacles, r=min_dist)
         valid = ~(collide | inside) | (i_iter >= max_iter)
         return ~valid
 
-    def get_goal(reset_input: Tuple[int, Array, Array, Array, Array]):
-        # key, goal_candidate, agent_start_pos, all_goals
-        i_iter, this_key, _, agent, all_goals = reset_input
+    def get_goal(reset_input: Tuple[int, Array, Array, Array, Array, Array]):
+        # key, goal_candidate, agent_start_pos, all_goals, all_states
+        i_iter, this_key, _, agent, all_goals, all_states = reset_input
         use_key, this_key = jr.split(this_key, 2)
         i_iter += 1
         if max_travel is None:
             return (i_iter, this_key,
-                    jr.uniform(use_key, (dim,), minval=0, maxval=max_side),
-                    agent, all_goals)
+                    jr.uniform(use_key, (dim,), minval=min_dist, maxval=max_side-min_dist),
+                    agent, all_goals, all_states)
         else:
-            return i_iter, this_key, jr.uniform(
-                use_key, (dim,), minval=-max_travel, maxval=max_travel) + agent, agent, all_goals
+            return (i_iter, this_key, 
+                   jr.uniform(use_key, (dim,), minval=min_dist, maxval=max_travel-min_dist) + agent, 
+                   agent, all_goals, all_states)
 
-    def non_valid_goal(reset_input: Tuple[int, Array, Array, Array, Array]):
-        # key, goal_candidate, agent_start_pos, all_goals
-        i_iter, _, goal, agent, all_goals = reset_input
-        dist_min = jnp.linalg.norm(all_goals - goal, axis=1).min()
-        collide = dist_min <= min_dist
-        inside = inside_obstacles(goal, obstacles, r=min_dist / 2)
-        outside = jnp.any(goal < 0) | jnp.any(goal > side_length)
+    def non_valid_goal(reset_input: Tuple[int, Array, Array, Array, Array, Array]):
+        # key, goal_candidate, agent_start_pos, all_goals, all_states
+        i_iter, _, goal, agent, all_goals, all_states = reset_input
+        
+        # Check distance to other valid goals (non-zero)
+        valid_goals = jnp.any(all_goals != 0, axis=1)
+        goal_distances = jnp.linalg.norm(all_goals - goal, axis=1)
+        goal_distances = jnp.where(valid_goals, goal_distances, jnp.ones_like(goal_distances) * 1e10)
+        dist_min_goals = jnp.min(goal_distances)
+        collide_with_goals = dist_min_goals < min_dist
+        
+        # Check distance to all valid agents (non-zero)
+        valid_agents = jnp.any(all_states != 0, axis=1)
+        agent_distances = jnp.linalg.norm(all_states - goal, axis=1)
+        agent_distances = jnp.where(valid_agents, agent_distances, jnp.ones_like(agent_distances) * 1e10)
+        dist_min_agents = jnp.min(agent_distances)
+        collide_with_agents = dist_min_agents < min_travel
+        
+        # Combine collision checks
+        collide = collide_with_goals | collide_with_agents
+        
+        inside = inside_obstacles(goal, obstacles, r=min_dist)
+        outside = jnp.any(goal < min_dist) | jnp.any(goal > max_side-min_dist)
         if max_travel is None:
             too_long = np.array(False, dtype=bool)
         else:
             too_long = jnp.linalg.norm(goal - agent) > max_travel
+        
         valid = (~collide & ~inside & ~outside & ~too_long) | (i_iter >= max_iter)
         out = ~valid
         assert out.shape == tuple() and out.dtype == jnp.bool_
@@ -207,7 +235,7 @@ def get_node_goal_rng(
         # agent_id, key, states, goals
         agent_id, this_key, all_states, all_goals = reset_input
         agent_key, goal_key, this_key = jr.split(this_key, 3)
-        agent_candidate = jr.uniform(agent_key, (dim,), minval=0, maxval=max_side)
+        agent_candidate = jr.uniform(agent_key, (dim,), minval=min_dist, maxval=max_side-min_dist)
         n_iter_agent, _, agent_candidate, _ = while_loop(
             cond_fun=non_valid_node, body_fun=get_node,
             init_val=(0, agent_key, agent_candidate, all_states)
@@ -215,13 +243,13 @@ def get_node_goal_rng(
         all_states = all_states.at[agent_id].set(agent_candidate)
 
         if max_travel is None:
-            goal_candidate = jr.uniform(goal_key, (dim,), minval=0, maxval=max_side)
+            goal_candidate = jr.uniform(goal_key, (dim,), minval=min_dist, maxval=max_side-min_dist)
         else:
-            goal_candidate = jr.uniform(goal_key, (dim,), minval=0, maxval=max_travel) + agent_candidate
+            goal_candidate = jr.uniform(goal_key, (dim,), minval=min_dist, maxval=max_travel-min_dist) + agent_candidate
 
-        n_iter_goal, _, goal_candidate, _, _ = while_loop(
+        n_iter_goal, _, goal_candidate, _, _, _ = while_loop(
             cond_fun=non_valid_goal, body_fun=get_goal,
-            init_val=(0, goal_key, goal_candidate, agent_candidate, all_goals)
+            init_val=(0, goal_key, goal_candidate, agent_candidate, all_goals, all_states)
         )
         all_goals = all_goals.at[agent_id].set(goal_candidate)
         agent_id += 1

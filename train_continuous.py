@@ -11,9 +11,8 @@ from dgppo.env import make_env
 from dgppo.trainer.trainer import Trainer
 from dgppo.trainer.utils import is_connected
 
-
-def train(args):
-    print(f"> Running train.py {args}")
+def train_continuous(args):
+    print(f"> Running train_continuous.py {args}")
 
     # set up environment variables and seed
     os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
@@ -76,6 +75,23 @@ def train(args):
         cost_schedule=args.cost_schedule
     )
 
+    # Load pre-trained model
+    if args.pretrained_path:
+        # Construct the path to the model directory
+        model_path = os.path.join(args.pretrained_path, "models")
+        if args.pretrained_step is None:
+            models = os.listdir(model_path)
+            step = max([int(model) for model in models if model.isdigit()])
+        else:
+            step = args.pretrained_step
+
+        # Construct the path to the actor.pkl file
+        model_file = os.path.join(model_path, f"{step}", "actor.pkl")
+        print(f"Attempting to load model from: {model_file}")  # Debugging statement
+        if not os.path.exists(model_file):
+            raise FileNotFoundError(f"Pre-trained model file not found: {model_file}")
+        algo.load(model_path, step)
+
     # Generate a 4 letter random identifier for the run.
     rng_ = np.random.default_rng()
     rand_id = "".join([chr(rng_.integers(65, 91)) for _ in range(4)])
@@ -129,7 +145,6 @@ def train(args):
     # start training
     trainer.train()
 
-
 def main():
     parser = argparse.ArgumentParser()
 
@@ -170,18 +185,21 @@ def main():
     parser.add_argument("--rnn-step", type=int, default=16)
 
     # default arguments
-    parser.add_argument("--n-env-train", type=int, default=int(128/4))
-    parser.add_argument("--batch-size", type=int, default=int(16384/4))
+    parser.add_argument("--n-env-train", type=int, default=int(128/8))
+    parser.add_argument("--batch-size", type=int, default=int(16384/8))
     parser.add_argument("--n-env-test", type=int, default=32)
     parser.add_argument("--log-dir", type=str, default="./logs")
     parser.add_argument("--eval-interval", type=int, default=50)
     parser.add_argument("--eval-epi", type=int, default=1)
     parser.add_argument("--save-interval", type=int, default=50)
 
-    args = parser.parse_args()
-    train(args)
+    # new arguments for continuous training
+    parser.add_argument("--pretrained-path", type=str, required=True, help="Path to the pre-trained model")
+    parser.add_argument("--pretrained-step", type=int, default=None, help="Step of the pre-trained model to load")
 
+    args = parser.parse_args()
+    train_continuous(args)
 
 if __name__ == "__main__":
     with ipdb.launch_ipdb_on_exception():
-        main()
+        main() 

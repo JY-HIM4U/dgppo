@@ -170,8 +170,8 @@ def main():
     parser.add_argument("--rnn-step", type=int, default=16)
 
     # default arguments
-    parser.add_argument("--n-env-train", type=int, default=int(128/4))
-    parser.add_argument("--batch-size", type=int, default=int(16384/4))
+    parser.add_argument("--n-env-train", type=int, default=128)
+    parser.add_argument("--batch-size", type=int, default=16384)
     parser.add_argument("--n-env-test", type=int, default=32)
     parser.add_argument("--log-dir", type=str, default="./logs")
     parser.add_argument("--eval-interval", type=int, default=50)

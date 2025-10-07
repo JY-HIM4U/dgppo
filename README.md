@@ -113,7 +113,7 @@ We provide the following environments with the [VMAS](https://github.com/prorokl
 - `VMASWheel`: The agents need to push a wheel to its pre-assigned angle, while the wheel must avoid a range of dangerous angles.
 
 ### Custom Environments
-It is very easy to create a custom environment by yourself! Choose one of the three engines, and inherit one of the existing environments. Define your reward function, graph connection, and dynamics, register the new environment in `env/__init__.py`, and you are good to go!
+It is very easy to create a custom environment by yourself! Choose one of the three engines, and inherit one of the existing environments. Define your reward function, graph connection, and dynamics, register the new environment in 'env/\_\_init\_\_.py`, and you are good to go!
 
 ## Algorithms
 
@@ -145,7 +145,7 @@ The training logs will be saved in `logs/<env>/<algo>/seed<seed>_<timestamp>_<fo
 
 #### For algorithms
 
-- `--no-cbf-schedule`: [For dgppo and hcbfcrpo] Remove the CBF schedule, default False.
+- `--cbf-schedule`: [For dgppo and hcbfcrpo] Use the CBF schedule, default False (**This should be used to reproduce the results**).
 - `--cbf-weight`: [For dgppo and hcbrcrpo] Weight of the CBF loss, default 1.0.
 - `--cbf-eps`: [For dgppo and hcbrcrpo] Epsilon of the CBF loss, default 0.01.
 - `--alpha`: [For dgppo and hcbrcrpo] The class-$\kappa$ function, default 10.0.
@@ -217,7 +217,7 @@ This should report the reward, min/max reward, cost, min/max cost, and the safet
 
 ```
 @inproceedings{zhang2025dgppo,
-      title={Discrete {GCBF} Proximal Policy Optimization for Multi-agent Safe Optimal Control},
+      title={Discrete GCBF Proximal Policy Optimization for Multi-agent Safe Optimal Control},
       author={Zhang, Songyuan and So, Oswin and Black, Mitchell and Fan, Chuchu},
       booktitle={The Thirteenth International Conference on Learning Representations},
       year={2025},

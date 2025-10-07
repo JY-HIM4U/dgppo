@@ -318,7 +318,7 @@ class InforMARLLagr(InforMARL):
 
     def load(self, load_dir: str, step: int):
         path = os.path.join(load_dir, str(step))
-
+        # jax.debug.print(path)
         self.policy_train_state = \
             self.policy_train_state.replace(params=pickle.load(open(os.path.join(path, 'actor.pkl'), 'rb')))
         self.Vl_train_state = \

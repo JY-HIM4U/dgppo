@@ -105,7 +105,7 @@ class Trainer:
             if step % self.eval_interval == 0:
                 eval_info = {}
                 test_rollouts: Rollout = test_fn(self.algo.params, test_keys)
-                total_reward = test_rollouts.rewards.sum(axis=-1)
+                total_reward = test_rollouts.rewards.sum(axis=1)
                 reward_min, reward_max = total_reward.min(), total_reward.max()
                 reward_mean = np.mean(total_reward)
                 reward_final = np.mean(test_rollouts.rewards[:, -1])
