@@ -16,7 +16,22 @@ def train(args):
     print(f"> Running train.py {args}")
 
     # set up environment variables and seed
+    # Increase CUDA timeout to prevent launch timeout errors
+    os.environ["XLA_PYTHON_CLIENT_TIMEOUT_SECONDS"] = "300"  # 5 minutes timeout
     os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+    os.environ["XLA_FLAGS"] = "--xla_gpu_enable_async_collectives=false"
+    os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # Use first GPU
+    
+    # Additional JAX configuration for better GPU performance
+    if args.cpu_only:
+        jax.config.update('jax_platform_name', 'cpu')
+        print("Running in CPU-only mode to avoid GPU timeout issues")
+    else:
+        jax.config.update('jax_platform_name', 'gpu')
+        jax.config.update('jax_debug_nans', False)
+        jax.config.update('jax_debug_infs', False)
+    
     if not is_connected():
         os.environ["WANDB_MODE"] = "offline"
     np.random.seed(args.seed)
@@ -174,9 +189,13 @@ def main():
     parser.add_argument("--rnn-step", type=int, default=16)
 
     # default arguments
-    parser.add_argument("--n-env-train", type=int, default=int(128/4))
-    parser.add_argument("--batch-size", type=int, default=int(16384/4))
+    parser.add_argument("--n-env-train", type=int, default=int(128/16))
+    parser.add_argument("--batch-size", type=int, default=int(16384/16))
+    # parser.add_argument("--n-env-train", type=int, default=int(128))
+    # parser.add_argument("--batch-size", type=int, default=int(16384))
     parser.add_argument("--n-env-test", type=int, default=32)
+    parser.add_argument("--cpu-only", action="store_true", default=False,
+                        help="Force CPU-only mode to avoid GPU timeout issues")
     parser.add_argument("--log-dir", type=str, default="./logs")
     parser.add_argument("--eval-interval", type=int, default=50)
     parser.add_argument("--eval-epi", type=int, default=1)

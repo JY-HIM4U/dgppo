@@ -67,7 +67,8 @@ def test_rollout(
     key_x0, key = jax.random.split(key)
 
     init_graph = env.reset(key_x0)
-
+    # jax.debug.print("init_graph.env_states.a_pos vmas: {x}", x=init_graph.env_states.a_pos.shape)
+    # jax.debug.print("env.num_agents: {x}", x=env)
     def body_(data, key_):
         graph, rnn_state = data
         if not stochastic:
@@ -83,6 +84,7 @@ def test_rollout(
                      (init_graph, init_rnn_state),
                      keys,
                      length=env.max_episode_steps))
+    # jax.debug.print("graphs.env_states.a_pos vmas: {x}", x=graphs.env_states.a_pos.shape)
     rollout_data = Rollout(graphs, actions, actor_rnn_states, rewards, costs, dones, log_pis, next_graphs)
     return rollout_data
 

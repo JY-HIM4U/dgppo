@@ -156,7 +156,7 @@ class DGPPO(InforMARLLagr):
             np.random.shuffle(idx)
             rnn_chunk_ids = jnp.arange(rollout.dones.shape[1])
             rnn_chunk_ids = jnp.array(jnp.array_split(rnn_chunk_ids, rollout.dones.shape[1] // self.rnn_step))
-            batch_idx = jnp.array(jnp.array_split(idx, idx.shape[0] // (self.batch_size // rollout.dones.shape[1])))
+            batch_idx = jnp.array(jnp.array_split(idx, idx.shape[0] // (self.batch_size // rollout.dones.shape[1])))    
             Vl_train_state, Vh_train_state, policy_train_state, update_info = self.update_inner(
                 self.Vl_train_state,
                 self.Vh_train_state,
@@ -272,6 +272,24 @@ class DGPPO(InforMARLLagr):
           Tp1ah_Vh=bTp1ah_Vh_det,
           Tp1_Vl=bTp1_Vl)
 
+        # ---------- Runtime checks ----------
+        # nan_bT_Al = jnp.isnan(bT_Al).any()
+        # jax.debug.print("❌ NaNs in bT_Al at step {}", step, where=nan_bT_Al)
+
+        # nan_bTah_Acbf = jnp.isnan(bTah_Acbf).any()
+        # jax.debug.print("❌ NaNs in bTah_Acbf at step {}", step, where=nan_bTah_Acbf)
+
+        # nan_bTp1ah_Vh = jnp.isnan(bTp1ah_Vh).any()
+        # jax.debug.print("❌ NaNs in bTp1ah_Vh at step {}", step, where=nan_bTp1ah_Vh)
+
+        # nan_bTp1_Vl = jnp.isnan(bTp1_Vl).any()
+        # jax.debug.print("❌ NaNs in bTp1_Vl at step {}", step, where=nan_bTp1_Vl)
+
+        # cbf_too_large = bTah_Acbf.max() > 1e6
+        # jax.debug.print("❌ CBF term exploded: max={} at step {}", bTah_Acbf.max(), step, where=cbf_too_large)
+
+        # ------------------------------------
+
         # ppo update
         def update_fn(carry, idx):
             Vl_model, Vh_model, policy_model = carry
@@ -284,13 +302,28 @@ class DGPPO(InforMARLLagr):
             policy_model, policy_info = self.update_policy(policy_model, rollout_batch, bTa_A[idx], rnn_chunk_ids)
             return (Vl_model, Vh_model, policy_model), (Vl_info | Vh_info | policy_info)
 
-        (Vl_train_state, Vh_train_state, policy_train_state), info = lax.scan(
-            update_fn, (Vl_train_state, Vh_train_state, policy_train_state), batch_idx
-        )
+        # (Vl_train_state, Vh_train_state, policy_train_state), info = lax.scan(
+        #     update_fn, (Vl_train_state, Vh_train_state, policy_train_state), batch_idx
+        # )
+        # # get training info of the last PPO epoch
+        # info = jtu.tree_map(lambda x: x[-1], info) | {'eval/safe_data': safe_data}
 
-        # get training info of the last PPO epoch
-        info = jtu.tree_map(lambda x: x[-1], info) | {'eval/safe_data': safe_data}
+        infos = []
+        for i in range(len(batch_idx)):
+            idx = batch_idx[i]
+            Vl_train_state, Vl_info = self.update_Vl(
+                Vl_train_state, jtu.tree_map(lambda x: x[idx], rollout), bT_Ql[idx], bT_Vl_rnn_states[idx], rnn_chunk_ids)
+            Vh_train_state, Vh_info = self.update_Vh(
+                Vh_train_state, jtu.tree_map(lambda x: x[idx], det_rollout), bTah_Qh_det[idx], rollout.rnn_states[idx], rnn_chunk_ids)
+            policy_train_state, policy_info = self.update_policy(
+                policy_train_state, jtu.tree_map(lambda x: x[idx], rollout), bTa_A[idx], rnn_chunk_ids)
+            infos.append(Vl_info | Vh_info | policy_info)
 
+        # get last update info
+        info = jtu.tree_map(lambda *xs: xs[-1], *infos) | {'eval/safe_data': safe_data}
+
+
+        
         return Vl_train_state, Vh_train_state, policy_train_state, info
 
     def update_Vh(
@@ -301,7 +334,7 @@ class DGPPO(InforMARLLagr):
             bT_rnn_states: Array,
             rnn_chunk_ids: Array
     ) -> Tuple[TrainState, dict]:
-        bcT_rollout = jax.tree_map(lambda x: x[:, rnn_chunk_ids], det_rollout)  # (n_env, n_chunk, T, ...)
+        bcT_rollout = jax.tree.map(lambda x: x[:, rnn_chunk_ids], det_rollout)  # (n_env, n_chunk, T, ...)
         bcTah_Qh_det = bTah_Qh_det[:, rnn_chunk_ids]
 
         def get_loss(Vh_params):

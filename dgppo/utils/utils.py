@@ -146,19 +146,20 @@ class CustomTimeElapsedColumn(ProgressColumn):
 
 
 def save_anim(ani: FuncAnimation, path: pathlib.Path):
-    pbar = Progress(*Progress.get_default_columns(), CustomTimeElapsedColumn())
-    pbar.start()
-    if hasattr(ani, "save_count"):
-        save_count = ani.save_count
-    else:
-        save_count = ani._save_count
-    task = pbar.add_task("Animating", total=save_count)
-
-    def progress_callback(curr_frame: int, total_frames: int):
-        pbar.update(task, advance=1)
-
-    ani.save(path, progress_callback=progress_callback)
-    pbar.stop()
+    # Use a simpler approach without progress bar to avoid threading issues
+    try:
+        # Try with ffmpeg first (if available)
+        ani.save(path, writer='ffmpeg', fps=30)
+    except Exception as e1:
+        try:
+            # Fallback to pillow
+            ani.save(path, writer='pillow', fps=30)
+        except Exception as e2:
+            # Final fallback: save without progress tracking
+            print(f"Warning: Could not save animation with ffmpeg: {e1}")
+            print(f"Warning: Could not save animation with pillow: {e2}")
+            print("Falling back to basic save...")
+            ani.save(path, fps=30)
 
 
 def tree_merge(data: List[NamedTuple]):

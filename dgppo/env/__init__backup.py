@@ -25,16 +25,16 @@ ENV = {
 }
 
 
-DEFAULT_MAX_STEP = 256
+DEFAULT_MAX_STEP = 128
 
 
 def make_env(
         env_id: str,
+        num_agents: int,
         max_step: int = None,
         full_observation: bool = False,
         num_obs: Optional[int] = None,
         n_rays: Optional[int] = None,
-        num_agents: Optional[int] = None,
         local_only: bool = False,
         **kwargs
 ) -> MultiAgentEnv:
@@ -58,8 +58,8 @@ def make_env(
             **kwargs
         )
     return ENV[env_id](
-        area_size=None,
         num_agents=num_agents,
+        area_size=None,
         max_step=max_step,
         dt=0.03,
         params=params

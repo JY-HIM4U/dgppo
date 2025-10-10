@@ -1,25 +1,47 @@
+# ========================
+# Core JAX stack (manual install needed for CUDA)
+jax==0.4.26
+# ⚠️ IMPORTANT: jaxlib must be installed manually for CUDA support:
+# pip install https://storage.googleapis.com/jax-releases/cuda12/jaxlib-0.4.26%2Bcuda12.cudnn89-cp310-cp310-manylinux2014_x86_64.whl
 
+# ========================
+# Debugging
 ipdb>=0.13.13
-wandb>=0.17.0
-flax>=0.8.3
+
+# ========================
+# JAX ecosystem
+flax>=0.6.8,<0.7.0          # ✅ Known compatible with jax==0.4.26
 jaxtyping>=0.2.28
-einops>=0.8.0
-matplotlib>=3.8.4
-tqdm>=4.66.4
-colour>=0.1.5
-seaborn>=0.13.2
+optax>=0.1.9
 equinox>=0.11.4
 jraph>=0.0.6.dev0
-tensorflow-probability>=0.24.0
-attrs>=23.2.0
+
+# ========================
+# Scientific/ML packages
 numpy==1.26.4
 scipy>=1.12.0
+tensorflow-probability>=0.24.0
 control>=0.9.4
-optax>=0.1.9
+attrs>=23.2.0
+
+# ========================
+# Visualization and logging
+wandb>=0.17.0
+matplotlib>=3.8.4
+tqdm>=4.66.4
+seaborn>=0.13.2
 rich>=13.7.0
+colour>=0.1.5
 pyyaml>=6.0.1
-opencv-python>=4.9.0
 mediapy>=1.2.2
+
+# ========================
+# Robotics / Simulation
+opencv-python>=4.9.0
 mujoco>=3.2.2
 mujoco-mjx
-numpy==1.26.4
+
+
+# pip install --upgrade jax flax
+# pip uninstall -y jax jaxlib
+# pip install -U "jax[cuda12]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html

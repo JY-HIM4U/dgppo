@@ -27,14 +27,12 @@ def train(args):
     # create environments
     env = make_env(
         env_id=args.env,
-        num_agents=args.num_agents,
         num_obs=args.obs,
         n_rays=args.n_rays,
         full_observation=args.full_observation,
     )
     env_test = make_env(
         env_id=args.env,
-        num_agents=args.num_agents,
         num_obs=args.obs,
         n_rays=args.n_rays,
         full_observation=args.full_observation,
@@ -48,7 +46,6 @@ def train(args):
         edge_dim=env.edge_dim,
         state_dim=env.state_dim,
         action_dim=env.action_dim,
-        n_agents=env.num_agents,
         cost_weight=args.cost_weight,
         cbf_weight=args.cbf_weight,
         actor_gnn_layers=args.actor_gnn_layers,
@@ -135,7 +132,7 @@ def main():
 
     # required arguments
     parser.add_argument("--env", type=str, required=True)
-    parser.add_argument("-n", "--num-agents", type=int, required=True)
+    # parser.add_argument("-n", "--num-agents", type=int, required=True)
     parser.add_argument("--algo", type=str, required=True)
     parser.add_argument("--obs", type=int, required=True)
 

@@ -37,7 +37,7 @@ class VMASCollaborativeTransport(MultiAgentEnv):
 
     PARAMS = {
         "comm_radius": 0.4,
-        "default_area_size": 0.8,
+        "default_area_size": 2.5,
         "dist2goal": 0.01,
         "agent_radius": 0.03,
         "object_length": 0.1,

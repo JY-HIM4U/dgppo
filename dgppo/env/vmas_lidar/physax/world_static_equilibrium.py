@@ -136,7 +136,7 @@ class World:
             vel = clamp_with_norm(vel, entity.max_speed)
         if entity.v_range is not None:
             vel = vel.clip(-entity.v_range, entity.v_range)
-        new_pos = entity.state.pos + vel * self.sub_dt
+        new_pos = entity.state.pos + vel * self.sub_dt + 0.5 * accel * self.sub_dt**2
 
         new_pos_x = new_pos[..., 0]
         new_pos_y = new_pos[..., 1]
@@ -308,7 +308,27 @@ class World:
         # stiffness = self.stiffness
         delta = agent_pos - chosen_vertices  # (n_pairs, 2)
         dist = jnp.linalg.norm(delta, axis=-1, keepdims=True)  # (n_pairs, 1)
-        force_on_vertex = self.stiffness * dist * (delta / (dist + 1e-8))  # (n_pairs, 2)
+        # force_on_vertex = self.stiffness * dist * (delta / (dist + 1e-8))  # (n_pairs, 2)
+        
+        # Get object masses for each pair
+        obj_masses = jnp.array([obj.mass for _, obj in a_o], dtype=jnp.float32)
+        obj_mass = obj_masses[0]
+        
+        # Add deterministic but varying mass variation between 80% and 120%
+        # Use object position and time for variation
+        # random_seed = jnp.sum(obj_pos[0] * 3.14159) + jnp.sum(agent_pos[0] * 2.71828) + jnp.sum(obj_angle * 1.618)
+        # random_factor = 0.8 + 0.4 * (jnp.sin(random_seed * 0.1) + 1) / 2
+        
+        mass = (obj_mass) / self.real_num_agents
+        
+        # Calculate force based on distance
+        # dist has shape (n_pairs, 1), so we need to handle it properly
+        force_on_vertex = jnp.where(
+            dist < 0.5,
+            mass * 9.8 * dist / (jnp.sqrt(0.5**2 - dist**2) + 1e-8),
+            mass * 9.8
+        )
+        
         force_on_agent = -force_on_vertex
 
         # Compute torque via 2D cross product: scalar per pair
@@ -328,8 +348,9 @@ class World:
         for agent, obj in (a_o):
             # jax.debug.print("agent: {x}", x=agent)
             i = int(agent.name.split('_')[-1])  # Extract index from agent's name
-            if agent.movable:
-                forces_dict[agent] = forces_dict.get(agent, jnp.zeros(2, dtype=jnp.float32)) + force_on_agent[i]
+            ## Don't need since action included agent-object interaction
+            # if agent.movable:
+            #     forces_dict[agent] = forces_dict.get(agent, jnp.zeros(2, dtype=jnp.float32)) + force_on_agent[i]
             if obj.movable:
                 forces_dict[obj] = forces_dict.get(obj, jnp.zeros(2, dtype=jnp.float32)) + force_on_vertex[i]
             if obj.rotatable:

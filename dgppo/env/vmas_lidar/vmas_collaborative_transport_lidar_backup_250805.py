@@ -42,7 +42,6 @@ class VMASCollaborativeTransportLidarState(NamedTuple):
     initial_dist2goal: float  # Store initial distance for normalization
     initial_angle_diff: float  # Store initial angle difference for normalization
     step_count: int
-    prev_action: Action  # Previous action for smoothness penalty
     @property
     def a_pos(self):
         return self.agent[:, :2]
@@ -148,7 +147,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         
         
         # self._node_dim = 10  # [x, y, vx, vy] # state dim (6) + indicator: agent: 0001, goal: 0010, object: 0100, obstacle: 1000
-        self._node_dim = 17  # agent [x, y, vx, vy] #object [x, y, vx, vy, theta, angvel], relgoal [x,y,theta], state dim (12) + indicator: agent: 0001, lidar: 0010
+        self._node_dim = 20  # agent [x, y, vx, vy] #object [x, y, vx, vy, theta, angvel], relgoal [x,y,theta], state dim (12) + indicator: agent: 0001, lidar: 0010
         self._edge_dim = 6  # [rel_x, rel_y, rel_vx, rel_vy]
         
         self._action_dim = 2  # [force_x, force_y]
@@ -188,7 +187,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         """Reset the environment."""
         random_n_agents,object_key, goal_key, obstacle_key, obstacle_theta_key = jax.random.split(key, 5)
         n_rng_obs = self.n_obs
-        real_num_agents = jax.random.randint(random_n_agents, shape=(), minval=8, maxval=12)
+        real_num_agents = jax.random.randint(random_n_agents, shape=(), minval=3, maxval=7)
         # agent_probs = jnp.array([0.2, 0.2, 0.6])  # [3, 4, 5]
         # agent_choices = jnp.array([3, 4, 5])
         # real_num_agents = agent_choices[jax.random.choice(random_n_agents, 3, p=agent_probs)]
@@ -256,9 +255,6 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         initial_angle_diff = jnp.minimum(initial_angle_diff, 2 * jnp.pi - initial_angle_diff)
         
         
-        # Initialize previous action as zeros
-        prev_action = jnp.zeros((self.num_agents, self.action_dim), dtype=jnp.float32)
-        
         init_state = VMASCollaborativeTransportLidarState(
             agent=agent_state,
             goal=goal_state,
@@ -268,8 +264,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
             stiffness=stiffness,
             initial_dist2goal=initial_dist2goal,
             initial_angle_diff=initial_angle_diff,
-            step_count=0,
-            prev_action=prev_action
+            step_count=0
         )
         
         lidar_data = self.get_lidar_data(init_state.agent, init_state.obstacle)
@@ -473,23 +468,6 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         )
         return obstacles
 
-    def add_uniform_noise(self, data: Array, key: Array, noise_scale: float = 0.1) -> Array:
-        """Add uniform noise in range ±noise_scale% of original values.
-        
-        Args:
-            data: Input array
-            key: Random key for noise generation
-            noise_scale: Scale of noise as fraction (default 0.1 = 10%)
-        
-        Returns:
-            Data with added uniform noise
-        """
-        # Calculate noise range for each value
-        noise_range = noise_scale * jnp.abs(data)
-        # Generate uniform noise in [-noise_range, +noise_range]
-        noise = jax.random.uniform(key, data.shape, minval=-noise_range, maxval=noise_range)
-        return data + noise
-
     def get_lidar_data(self, states: State, obstacles: Obstacle) -> Float[Array, "n_agent top_k_rays 2"]:
         """Get lidar data for each agent."""
         lidar_data = None
@@ -515,11 +493,11 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
     ) -> Tuple[LidarEnvGraphsTuple, Reward, Cost, Done, Info]:
         env_state = graph.env_states
         object_length = self.polygon_length / (2 * jnp.sin(jnp.pi / env_state.real_num_agents))
-        # action = self.clip_action(action)
+        action = self.clip_action(action)
         assert action.shape == (self.num_agents, 2)
         mask = jnp.arange(self.num_agents) < env_state.real_num_agents  # shape: (self.num_agents,)
         action = action * mask[:, None]
-        world = World(x_semidim=self.area_size, y_semidim=self.area_size, contact_margin=6e-3, substeps=5, collision_force=10, real_num_agents=env_state.real_num_agents, num_agents=self.num_agents, stiffness=env_state.stiffness)
+        world = World(x_semidim=self.area_size, y_semidim=self.area_size, contact_margin=6e-3, substeps=5, collision_force=500, real_num_agents=env_state.real_num_agents, num_agents=self.num_agents, stiffness=env_state.stiffness)
         agents = [
             Agent.create(
                 f"agent_{ii}",
@@ -531,18 +509,18 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
                 pos=env_state.a_pos[ii], 
                 vel=env_state.a_vel[ii]
             ).withforce(
-                force=action[ii]*2.0 * self.agent_mass
+                force=action[ii] * self.agent_mass
             )
             for ii in range(self.num_agents)
         ]
-        # dyn_mass = (self.object_mass / 9) * (env_state.real_num_agents ** 2)
+        
         object = Entity.create(
             "object",
             movable=True,
             rotatable=True,
             collide=True,
             shape=Object(length=object_length),
-            mass=self.object_mass # /9*env_state.real_num_agents**2,
+            mass=self.object_mass# /9*env_state.real_num_agents**2,
         ).withstate(
             pos=env_state.object_pos[0],
             vel=env_state.object_vel[0],
@@ -551,7 +529,6 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         )
 
         entities, info = world.step([object, *agents])
-        
         object = entities[0]
         agents = entities[1:]
         
@@ -576,8 +553,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
             stiffness=env_state.stiffness,
             initial_dist2goal=env_state.initial_dist2goal,
             initial_angle_diff=env_state.initial_angle_diff,
-            step_count=env_state.step_count+1,
-            prev_action=action  # Store current action as previous action for next step
+            step_count=env_state.step_count+1
         )
 
         lidar_data_next = self.get_lidar_data(new_state.agent, new_state.obstacle)
@@ -646,13 +622,6 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         reward -= jnp.where(dist2goal > self.goal_threshold, 1.0, 0.0).mean() * 0.001
         reward -= (jnp.linalg.norm(action, axis=1) ** 2).mean() * 0.0001
         reward -= masked_agent_vertex_dists.sum() * 0.1
-        
-        # Add smoothness penalty for action differences
-        # Only apply penalty if we have a previous action (not the first step)
-        action_diff = jnp.linalg.norm(action - env_state.prev_action, axis=1)
-        # Apply mask to only consider valid agents
-        masked_action_diff = action_diff * mask.astype(action_diff.dtype)
-        reward -= masked_action_diff.mean() * 0.01  # Adjust coefficient as needed
         
         # # For the agent velocities, apply the mask as well.
         # # env_state.a_vel has shape (self.num_agents, 2), so we expand the mask along the second dimension.
@@ -902,7 +871,8 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         if lidar_data is not None:
             # Observations are appended after agents and goals in the node ordering.
             # id_obs = jnp.arange(self.num_agents + self.num_goals, self.num_agents + self.num_goals + n_hits)
-            id_obs = jnp.arange(self.num_agents, self.num_agents + n_hits)
+            id_obs = jnp.arange(self.num_agents + self.num_goals + self.num_objects,
+                    self.num_agents + self.num_goals + self.num_objects + n_hits)
             # id_obs = jnp.arange(self.num_agents,self.num_agents + n_hits)
 
             for i in range(self.num_agents):
@@ -929,11 +899,13 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         # return [agent_agent_edges] + agent_goal_edges + agent_obs_edges
         return [agent_agent_edges] + agent_obs_edges
 
+
     def get_graph(self, state: VMASCollaborativeTransportLidarState, lidar_data: Pos2d = None) -> GraphsTuple:
         """Create a graph representation of the environment state."""
         # Use the static self.params["n_obs"] to determine lidar hits.
         n_hits = self.top_k_rays * self.num_agents if self._params["n_obs"] > 0 else 0
-        n_nodes = self.num_agents + n_hits
+        n_nodes = self.num_agents + self.num_goals + self.num_objects + n_hits
+        # n_nodes = self.num_agents + n_hits
 
         # Process lidar data if not provided.
         if lidar_data is not None:
@@ -945,53 +917,47 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         rel_vertex_pos = vertex_pos - state.a_pos
         node_feats = jnp.zeros((n_nodes, self.node_dim))
         
-        # Add uniform noise to observation data (10% noise)
-        noise_key = jax.random.PRNGKey(state.step_count)
+        node_feats = node_feats.at[:self.num_agents, :2].set(state.a_pos)
+        node_feats = node_feats.at[:self.num_agents, 2:4].set(state.a_vel)
+        node_feats = node_feats.at[:self.num_agents, 4:6].set(state.object_pos)
+        node_feats = node_feats.at[:self.num_agents, 6:8].set(state.object_vel)
+        node_feats = node_feats.at[:self.num_agents, 8:9].set(state.object_angle)
+        node_feats = node_feats.at[:self.num_agents, 9:10].set(state.object_angvel)
+        node_feats = node_feats.at[:self.num_agents, 10:12].set(rel_goal_pos)
+        node_feats = node_feats.at[:self.num_agents, 12:13].set(rel_goal_angle)
+        node_feats = node_feats.at[:self.num_agents, 13:15].set(rel_vertex_pos)
         
-        # Add noise to agent positions and velocities
-        agent_pos_noisy = self.add_uniform_noise(state.a_pos, noise_key, 0.1)
-        agent_vel_noisy = self.add_uniform_noise(state.a_vel, noise_key, 0.1)
-        
-        # Add noise to object position and velocity
-        object_pos_noisy = self.add_uniform_noise(state.object_pos, noise_key, 0.1)
-        object_vel_noisy = self.add_uniform_noise(state.object_vel, noise_key, 0.1)
-        
-        # Add noise to object angle and angular velocity
-        object_angle_noisy = self.add_uniform_noise(state.object_angle, noise_key, 0.1)
-        object_angvel_noisy = self.add_uniform_noise(state.object_angvel, noise_key, 0.1)
-        
-        # Recalculate relative positions with noisy observations
-        rel_goal_pos_noisy = state.goal_pos - object_pos_noisy
-        rel_goal_angle_noisy = state.goal_theta - object_angle_noisy
-        rel_vertex_pos_noisy = vertex_pos - agent_pos_noisy
-        
-        # Set noisy observations
-        node_feats = node_feats.at[:self.num_agents, :2].set(agent_pos_noisy)
-        node_feats = node_feats.at[:self.num_agents, 2:4].set(agent_vel_noisy)
-        node_feats = node_feats.at[:self.num_agents, 4:6].set(object_pos_noisy)
-        node_feats = node_feats.at[:self.num_agents, 6:8].set(object_vel_noisy)
-        node_feats = node_feats.at[:self.num_agents, 8:9].set(object_angle_noisy)
-        node_feats = node_feats.at[:self.num_agents, 9:10].set(object_angvel_noisy)
-        node_feats = node_feats.at[:self.num_agents, 10:12].set(rel_goal_pos_noisy)
-        node_feats = node_feats.at[:self.num_agents, 12:13].set(rel_goal_angle_noisy)
-        node_feats = node_feats.at[:self.num_agents, 13:15].set(rel_vertex_pos_noisy)
-        # Create agent active/inactive mask
-        mask = jnp.arange(self.num_agents) < state.real_num_agents  # shape: (self.num_agents,)
-        node_feats = node_feats.at[0: self.num_agents, 15].set(mask.astype(jnp.float32))
-        node_feats = node_feats.at[0: self.num_agents, -1].set(1.)
+
+        node_feats = node_feats.at[self.num_agents: self.num_agents + self.num_goals, :2].set(state.goal[:, :2])
+        node_feats = node_feats.at[self.num_agents + self.num_goals: self.num_agents + self.num_goals + self.num_objects, :self.object_dim].set(state.object)
         if lidar_data is not None:
             node_feats = node_feats.at[-n_hits:, :2].set(lidar_data)
-            node_feats = node_feats.at[-n_hits:, -2].set(1.)  # obs feats
-
+            
+        # Create agent active/inactive mask
+        mask = jnp.arange(self.num_agents) < state.real_num_agents  # shape: (self.num_agents,)
         
-        node_type = jnp.ones(n_nodes, dtype=jnp.int32)
+        # Set agent active flags using the mask (1 for active, 0 for inactive)
+        # node_feats = node_feats.at[0: self.num_agents, self.node_dim - 1].set(mask.astype(jnp.float32))
+        node_feats = node_feats.at[0: self.num_agents, 15].set(mask.astype(jnp.float32))
+        node_feats = node_feats.at[0: self.num_agents, self.node_dim - 1].set(1.)
+        # The rest stays the same
+        node_feats = (
+            node_feats.at[self.num_agents: self.num_agents + self.num_goals, self.state_dim - 2].set(1.))  # goal
+        node_feats = node_feats.at[self.num_agents + self.num_goals: self.num_agents + self.num_goals + self.num_objects, self.state_dim -3 ].set(1.)  # object
+        
+        if n_hits > 0:
+            node_feats = node_feats.at[-n_hits:, self.node_dim-4].set(1.)  # obs feats
+            
+        node_type = -jnp.ones(n_nodes, dtype=jnp.int32)
         node_type = node_type.at[: self.num_agents].set(VMASCollaborativeTransportLidar.AGENT)
+        node_type = node_type.at[self.num_agents: self.num_agents + self.num_goals].set(VMASCollaborativeTransportLidar.GOAL)
+        node_type = node_type.at[self.num_agents + self.num_goals:self.num_agents + self.num_goals + self.num_objects].set(VMASCollaborativeTransportLidar.OBJECT)
         if n_hits > 0:
             node_type = node_type.at[-n_hits:].set(VMASCollaborativeTransportLidar.OBS)
-        
+
         edge_blocks = self.edge_blocks(state, lidar_data)
             
-        states = state.agent
+        states = jnp.concatenate([state.agent, state.goal, state.object], axis=0)
         if lidar_data is not None:
             lidar_states = jnp.concatenate(
                 [lidar_data, jnp.zeros((n_hits, self.state_dim - lidar_data.shape[1]))], axis=1)
@@ -1003,10 +969,9 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         pass
 
     def action_lim(self) -> Tuple[Action, Action]:
-        # lower_lim = jnp.ones(2) * -0.5
-        # upper_lim = jnp.ones(2) * 0.5
-        # return lower_lim, upper_lim
-        pass
+        lower_lim = jnp.ones(2) * -0.5
+        upper_lim = jnp.ones(2) * 0.5
+        return lower_lim, upper_lim
     def get_obs_collection(self, obstacles: Obstacle, color: str, alpha: float):
         if obstacles is None:
             return None
@@ -1147,21 +1112,6 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         for patch in agent_patches:
             ax.add_patch(patch)
 
-        # Initialize action quivers (arrows) for each agent
-        action_list = rollout.actions
-        arrow_scale = 0.3
-        action_quivers = []
-        for ii in range(T_env_states.real_num_agents[0]):
-            quiver = ax.quiver(
-                0, 0, 0, 0,
-                color=agent_colors[ii],
-                alpha=0.8,
-                scale=1/arrow_scale,
-                width=0.005,
-                zorder=6
-            )
-            action_quivers.append(quiver)
-
         # Texts for debug.
         text_font_opts = dict(
             size=16,
@@ -1208,7 +1158,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
 
         def init_fn() -> list[plt.Artist]:
             # Return all static artists including the edge collection.
-            return [triangle_patch,  *agent_patches, *texts, edge_col, *action_quivers]
+            return [triangle_patch,  *agent_patches, *texts, edge_col]
 
         def update(kk: int) -> list[plt.Artist]:
             # Get the current environment state and graph.
@@ -1219,23 +1169,6 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
             for ii in range(T_env_states.real_num_agents[0]):
                 pos = env_state.a_pos[ii]
                 agent_patches[ii].set_center(pos)
-                # Update action arrows (quivers)
-                if ii < len(action_quivers) and kk < len(action_list):
-                    action = action_list[kk]
-                    if action.shape[0] > ii:
-                        agent_action = action[ii]
-                        if agent_action.shape[0] >= 2:
-                            action_quivers[ii].set_offsets([pos[0], pos[1]])
-                            action_quivers[ii].set_UVC(agent_action[0], agent_action[1])
-                        else:
-                            action_quivers[ii].set_offsets([pos[0], pos[1]])
-                            action_quivers[ii].set_UVC(0, 0)
-                    else:
-                        action_quivers[ii].set_offsets([pos[0], pos[1]])
-                        action_quivers[ii].set_UVC(0, 0)
-                else:
-                    action_quivers[ii].set_offsets([pos[0], pos[1]])
-                    action_quivers[ii].set_UVC(0, 0)
             
             # Update the object (triangle) patch.
             angle = float(np.array(env_state.object_angle)[0, 0])
@@ -1305,7 +1238,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
             edge_col.set_color(e_colors)
             # -------------------------
 
-            return [triangle_patch, *agent_patches, *texts, edge_col, *action_quivers]
+            return [triangle_patch, *agent_patches, *texts, edge_col]
 
         fps = 30.0
         spf = 1 / fps

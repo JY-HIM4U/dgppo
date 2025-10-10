@@ -108,8 +108,11 @@ class Trainer:
             if step % self.eval_interval == 0:
                 eval_info = {}
                 test_rollouts: Rollout = test_fn(self.algo.params, test_keys)
-                total_reward = test_rollouts.rewards.sum(axis=-1)
+                total_reward = test_rollouts.rewards.sum(axis=1)
+                # jax.debug.print("test_rollouts.rewards: {x}", x=test_rollouts.rewards)
+                # jax.debug.print("test_rollouts.rewards.shape: {x}", x=test_rollouts.rewards.shape)
                 # jax.debug.print("total_reward: {x}", x=total_reward)
+                # jax.debug.print("total_reward.shape: {x}", x=total_reward.shape)
                 reward_min, reward_max = total_reward.min(), total_reward.max()
                 reward_mean = np.mean(total_reward)
                 reward_final = np.mean(test_rollouts.rewards[:, -1])
@@ -139,6 +142,8 @@ class Trainer:
 
             # update the algorithm
             update_info = self.algo.update(rollouts, step)
+            
+
             wandb.log(update_info, step=self.update_steps)
             self.update_steps += 1
 

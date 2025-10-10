@@ -146,6 +146,7 @@ def get_node_goal_rng(
         n: int,
         min_dist: float,
         obstacles: Obstacle = None,
+        min_travel: float = None,
         side_length_y: float = None,
         max_travel: float = None,
         side_length_z: float = None
@@ -213,7 +214,7 @@ def get_node_goal_rng(
         agent_distances = jnp.linalg.norm(all_states - goal, axis=1)
         agent_distances = jnp.where(valid_agents, agent_distances, jnp.ones_like(agent_distances) * 1e10)
         dist_min_agents = jnp.min(agent_distances)
-        collide_with_agents = dist_min_agents < min_dist
+        collide_with_agents = dist_min_agents < min_travel
         
         # Combine collision checks
         collide = collide_with_goals | collide_with_agents
@@ -235,6 +236,7 @@ def get_node_goal_rng(
         agent_id, this_key, all_states, all_goals = reset_input
         agent_key, goal_key, this_key = jr.split(this_key, 3)
         agent_candidate = jr.uniform(agent_key, (dim,), minval=min_dist, maxval=max_side-min_dist)
+        
         n_iter_agent, _, agent_candidate, _ = while_loop(
             cond_fun=non_valid_node, body_fun=get_node,
             init_val=(0, agent_key, agent_candidate, all_states)
@@ -250,9 +252,10 @@ def get_node_goal_rng(
             cond_fun=non_valid_goal, body_fun=get_goal,
             init_val=(0, goal_key, goal_candidate, agent_candidate, all_goals, all_states)
         )
+        
         all_goals = all_goals.at[agent_id].set(goal_candidate)
         agent_id += 1
-
+        
         # if no solution is found, start over
         agent_id = (1 - (n_iter_agent >= max_iter)) * (1 - (n_iter_goal >= max_iter)) * agent_id
         all_states = (1 - (n_iter_agent >= max_iter)) * (1 - (n_iter_goal >= max_iter)) * all_states
