@@ -94,7 +94,8 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         "obs_len_range": [0.1, 0.3],
         "top_k_rays": 8,
         "n_obs": 3,
-        "default_area_size": 3.0 # 5.0 
+        "default_area_size": 3.0, # 5.0 
+        "agent_vertex_constraint": 0.15
     }
 
     def __init__(
@@ -130,6 +131,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         self.step_count = 0
         
         self.agent_radius = self._params["car_radius"]
+        self.agent_vertex_constraint = self._params["agent_vertex_constraint"]
         self.comm_radius = self._params["comm_radius"]
         self.lidar_radius = self._params["lidar_radius"]
         self.n_rays = self._params["n_rays"]
@@ -178,7 +180,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
 
     @property
     def n_cost(self) -> int:
-        return 3
+        return 4
 
     @property
     def cost_components(self) -> Tuple[str, ...]:
@@ -188,7 +190,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         """Reset the environment."""
         random_n_agents,object_key, goal_key, obstacle_key, obstacle_theta_key = jax.random.split(key, 5)
         n_rng_obs = self.n_obs
-        real_num_agents = jax.random.randint(random_n_agents, shape=(), minval=3, maxval=13)
+        real_num_agents = jax.random.randint(random_n_agents, shape=(), minval=3, maxval=9)
         # agent_probs = jnp.array([0.2, 0.2, 0.6])  # [3, 4, 5]
         # agent_choices = jnp.array([3, 4, 5])
         # real_num_agents = agent_choices[jax.random.choice(random_n_agents, 3, p=agent_probs)]
@@ -575,7 +577,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
                 pos=env_state.a_pos[ii],
                 vel=env_state.a_vel[ii],
             ).withforce(
-                force=action[ii] * 4.0 * self.agent_mass,
+                force=action[ii] * 1 * self.agent_mass,
             )
             for ii in range(self.num_agents)
         ]
@@ -814,6 +816,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         
 
         vertex_pos = jnp.squeeze(vertex_pos, axis=0)  # Now shape (3, 2)
+        
         def is_inside_polygon(points, vertices):
             """Vectorized version of point-in-polygon test"""
             # For simplicity, we'll use a simpler approach that works for convex polygons
@@ -896,7 +899,11 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
             (self.num_agents,),
             jnp.max(- edge_dists)
         )
-        cost = jnp.stack([4 * a_cost_agent, 2 * obs_cost, 2 * obstacle_object_cost], axis=1)
+        agent_vertex_length = agent_pos - vertex_pos
+        agent_vertex_dist = jnp.linalg.norm(agent_vertex_length, axis=-1)
+        agent_vertex_dist = jnp.where(mask, agent_vertex_dist, 1e6)
+        agent_vertex_cost = agent_vertex_dist - self.agent_vertex_constraint
+        cost = jnp.stack([4 * a_cost_agent, 2 * obs_cost, 2 * obstacle_object_cost,10*agent_vertex_cost], axis=1)
         eps = 0.5
         cost = jnp.where(cost <= 0.0, cost - eps, cost + eps)
         cost = jnp.clip(cost, a_min=-1.0, a_max=1.0)
@@ -1047,8 +1054,8 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         pass
 
     def action_lim(self) -> Tuple[Action, Action]:
-        lower_lim = jnp.ones(2) * -0.5
-        upper_lim = jnp.ones(2) * 0.5
+        lower_lim = jnp.ones(2) * -5.0 #-0.5
+        upper_lim = jnp.ones(2) * 5.0 #0.5
         return lower_lim, upper_lim
     def get_obs_collection(self, obstacles: Obstacle, color: str, alpha: float):
         if obstacles is None:
