@@ -190,12 +190,13 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         """Reset the environment."""
         random_n_agents,object_key, goal_key, obstacle_key, obstacle_theta_key = jax.random.split(key, 5)
         n_rng_obs = self.n_obs
-        real_num_agents = jax.random.randint(random_n_agents, shape=(), minval=3, maxval=9)
+        real_num_agents = jax.random.randint(random_n_agents, shape=(), minval=3, maxval=6)
         # agent_probs = jnp.array([0.2, 0.2, 0.6])  # [3, 4, 5]
         # agent_choices = jnp.array([3, 4, 5])
         # real_num_agents = agent_choices[jax.random.choice(random_n_agents, 3, p=agent_probs)]
-        stiffness = (jax.random.randint(key, (), 1, 11).astype(jnp.float32) * 0.1)
-        # stiffness = 0.1
+        # stiffness = (jax.random.randint(key, (), 1, 11).astype(jnp.float32) * 0.1) # 0.1~1.1
+        stiffness = (jax.random.randint(key, (), 5, 70).astype(jnp.float32) * 0.01) # 0.05~0.7
+        # stiffness = 0.08
         object_length = self.polygon_length / (2 * jnp.sin(jnp.pi / real_num_agents))
         # -------------------------------
         # 1. Sample obstacles with spacing constraints
@@ -286,7 +287,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         if n_rng_obs == 0:
             return None
 
-        max_attempts = 1000
+        max_attempts = 100
         # Ensure n_rng_obs is a Python int.
         n_rng_obs = int(n_rng_obs)
 
@@ -393,7 +394,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         if n_rng_obs == 0:
             return None
 
-        max_attempts = 1000
+        max_attempts = 20
         # Ensure n_rng_obs is a Python int.
         n_rng_obs = int(n_rng_obs)
 
@@ -517,7 +518,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
     ) -> Tuple[LidarEnvGraphsTuple, Reward, Cost, Done, Info]:
         env_state = graph.env_states
         object_length = self.polygon_length / (2 * jnp.sin(jnp.pi / env_state.real_num_agents))
-        action = self.clip_action(action)
+        # action = self.clip_action(action)
         assert action.shape == (self.num_agents, 2)
         mask = jnp.arange(self.num_agents) < env_state.real_num_agents  # shape: (self.num_agents,)
         action = action * mask[:, None]
@@ -577,7 +578,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
                 pos=env_state.a_pos[ii],
                 vel=env_state.a_vel[ii],
             ).withforce(
-                force=action[ii] * 1 * self.agent_mass,
+                force=action[ii] * 1.0 * self.agent_mass,
             )
             for ii in range(self.num_agents)
         ]
@@ -686,8 +687,8 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         # reward -= (jnp.linalg.norm(action, axis=1) ** 2).mean() * 4
         # reward -= masked_agent_vertex_dists.sum() * 2 # * time_factor
 
-        reward = -dist2goal.mean() * 0.01
-        reward -= dist2goal_theta * 0.01
+        reward = -dist2goal.mean() * 0.04
+        reward -= dist2goal_theta * 0.04
         reward -= jnp.where(dist2goal > self.goal_threshold, 1.0, 0.0).mean() * 0.001
         reward -= (jnp.linalg.norm(action, axis=1) ** 2).mean() * 0.0001
         reward -= masked_agent_vertex_dists.sum() * 0.1
@@ -998,18 +999,19 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         # Add uniform noise to observation data (10% noise)
         noise_key = jax.random.PRNGKey(state.step_count)
         noise_level=0.00
+        vel_noise_level=0.20
         
         # Add noise to agent positions and velocities
         agent_pos_noisy = self.add_uniform_noise(state.a_pos, noise_key, noise_level)
-        agent_vel_noisy = self.add_uniform_noise(state.a_vel, noise_key, noise_level)
+        agent_vel_noisy = self.add_uniform_noise(state.a_vel, noise_key, vel_noise_level)
         
         # Add noise to object position and velocity
         object_pos_noisy = self.add_uniform_noise(state.object_pos, noise_key, noise_level)
-        object_vel_noisy = self.add_uniform_noise(state.object_vel, noise_key, noise_level)
+        object_vel_noisy = self.add_uniform_noise(state.object_vel, noise_key, vel_noise_level)
         
         # Add noise to object angle and angular velocity
         object_angle_noisy = self.add_uniform_noise(state.object_angle, noise_key, noise_level)
-        object_angvel_noisy = self.add_uniform_noise(state.object_angvel, noise_key, noise_level)
+        object_angvel_noisy = self.add_uniform_noise(state.object_angvel, noise_key, vel_noise_level)
         
         # Recalculate relative positions with noisy observations
         rel_goal_pos_noisy = state.goal_pos - object_pos_noisy
