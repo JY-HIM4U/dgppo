@@ -190,7 +190,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         """Reset the environment."""
         random_n_agents,object_key, goal_key, obstacle_key, obstacle_theta_key = jax.random.split(key, 5)
         n_rng_obs = self.n_obs
-        real_num_agents = jax.random.randint(random_n_agents, shape=(), minval=3, maxval=6)
+        real_num_agents = jax.random.randint(random_n_agents, shape=(), minval=3, maxval=7)
         # agent_probs = jnp.array([0.2, 0.2, 0.6])  # [3, 4, 5]
         # agent_choices = jnp.array([3, 4, 5])
         # real_num_agents = agent_choices[jax.random.choice(random_n_agents, 3, p=agent_probs)]
@@ -690,7 +690,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         reward = -dist2goal.mean() * 0.04
         reward -= dist2goal_theta * 0.04
         reward -= jnp.where(dist2goal > self.goal_threshold, 1.0, 0.0).mean() * 0.001
-        reward -= (jnp.linalg.norm(action, axis=1) ** 2).mean() * 0.0001
+        reward -= (jnp.linalg.norm(action, axis=1) ** 2).mean() * 0.1
         reward -= masked_agent_vertex_dists.sum() * 0.1
         
         # Add smoothness penalty for action differences
@@ -698,7 +698,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         action_diff = jnp.linalg.norm(action - env_state.prev_action, axis=1)
         # Apply mask to only consider valid agents
         masked_action_diff = action_diff * mask.astype(action_diff.dtype)
-        reward -= masked_action_diff.mean() * 0.01  # Adjust coefficient as needed
+        reward -= masked_action_diff.mean() * 0.1  # Adjust coefficient as needed
         
         # # For the agent velocities, apply the mask as well.
         # # env_state.a_vel has shape (self.num_agents, 2), so we expand the mask along the second dimension.
@@ -998,8 +998,8 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         
         # Add uniform noise to observation data (10% noise)
         noise_key = jax.random.PRNGKey(state.step_count)
-        noise_level=0.00
-        vel_noise_level=0.20
+        noise_level=0.05
+        vel_noise_level=0.30
         
         # Add noise to agent positions and velocities
         agent_pos_noisy = self.add_uniform_noise(state.a_pos, noise_key, noise_level)
