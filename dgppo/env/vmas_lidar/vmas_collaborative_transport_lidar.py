@@ -111,7 +111,15 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
             local_only: bool = False,
             object_length: float = 0.1,
             object_mass: float = 0.045, # 10.0,
-            half_width: float = 0.8
+            half_width: float = 0.8,
+            min_num_agents: int = 3,
+            max_num_agents: int = 5,
+            reward_dist2goal: float = 0.06,
+            reward_dist2goal_theta: float = 0.06,
+            reward_dist2goal_threshold: float = 0.001,
+            reward_action_norm: float = 0.1,
+            reward_agent_vertex_dists: float = 0.1,
+            reward_action_diff: float = 0.1,
     ):
         area_size_value = area_size if area_size is not None else self.PARAMS['default_area_size']
         super().__init__(num_agents, area_size=area_size_value, dt=dt)
@@ -129,7 +137,16 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         self.max_step = max_step
         self.local_only = local_only
         self.step_count = 0
-        
+
+        self.min_num_agents = min_num_agents
+        self.max_num_agents = max_num_agents
+        self.reward_dist2goal = reward_dist2goal
+        self.reward_dist2goal_theta = reward_dist2goal_theta
+        self.reward_dist2goal_threshold = reward_dist2goal_threshold
+        self.reward_action_norm = reward_action_norm
+        self.reward_agent_vertex_dists = reward_agent_vertex_dists
+        self.reward_action_diff = reward_action_diff
+
         self.agent_radius = self._params["car_radius"]
         self.agent_vertex_constraint = self._params["agent_vertex_constraint"]
         self.comm_radius = self._params["comm_radius"]
@@ -190,7 +207,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         """Reset the environment."""
         random_n_agents,object_key, goal_key, obstacle_key, obstacle_theta_key = jax.random.split(key, 5)
         n_rng_obs = self.n_obs
-        real_num_agents = jax.random.randint(random_n_agents, shape=(), minval=3, maxval=6)
+        real_num_agents = jax.random.randint(random_n_agents, shape=(), minval=self.min_num_agents, maxval=self.max_num_agents+1)
         # agent_probs = jnp.array([0.2, 0.2, 0.6])  # [3, 4, 5]
         # agent_choices = jnp.array([3, 4, 5])
         # real_num_agents = agent_choices[jax.random.choice(random_n_agents, 3, p=agent_probs)]
@@ -687,18 +704,18 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         # reward -= (jnp.linalg.norm(action, axis=1) ** 2).mean() * 4
         # reward -= masked_agent_vertex_dists.sum() * 2 # * time_factor
 
-        reward = -dist2goal.mean() * 0.04
-        reward -= dist2goal_theta * 0.04
-        reward -= jnp.where(dist2goal > self.goal_threshold, 1.0, 0.0).mean() * 0.001
-        reward -= (jnp.linalg.norm(action, axis=1) ** 2).mean() * 0.0001
-        reward -= masked_agent_vertex_dists.sum() * 0.1
+        reward = -dist2goal.mean() * self.reward_dist2goal
+        reward -= dist2goal_theta * self.reward_dist2goal_theta
+        reward -= jnp.where(dist2goal > self.goal_threshold, 1.0, 0.0).mean() * self.reward_dist2goal_threshold
+        reward -= (jnp.linalg.norm(action, axis=1) ** 2).mean() * self.reward_action_norm
+        reward -= masked_agent_vertex_dists.sum() * self.reward_agent_vertex_dists
         
         # Add smoothness penalty for action differences
         # Only apply penalty if we have a previous action (not the first step)
         action_diff = jnp.linalg.norm(action - env_state.prev_action, axis=1)
         # Apply mask to only consider valid agents
         masked_action_diff = action_diff * mask.astype(action_diff.dtype)
-        reward -= masked_action_diff.mean() * 0.01  # Adjust coefficient as needed
+        reward -= masked_action_diff.mean() * self.reward_action_diff  # Adjust coefficient as needed
         
         # # For the agent velocities, apply the mask as well.
         # # env_state.a_vel has shape (self.num_agents, 2), so we expand the mask along the second dimension.
@@ -998,8 +1015,8 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         
         # Add uniform noise to observation data (10% noise)
         noise_key = jax.random.PRNGKey(state.step_count)
-        noise_level=0.00
-        vel_noise_level=0.20
+        noise_level=0.05
+        vel_noise_level=0.30
         
         # Add noise to agent positions and velocities
         agent_pos_noisy = self.add_uniform_noise(state.a_pos, noise_key, noise_level)

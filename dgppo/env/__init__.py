@@ -36,6 +36,14 @@ def make_env(
         full_observation: bool = False,
         num_obs: Optional[int] = None,
         n_rays: Optional[int] = None,
+        min_num_agents: int = 3,
+        max_num_agents: int = 5,
+        reward_dist2goal: float = 0.06,
+        reward_dist2goal_theta: float = 0.06,
+        reward_dist2goal_threshold: float = 0.001,
+        reward_action_norm: float = 0.1,
+        reward_agent_vertex_dists: float = 0.1,
+        reward_action_diff: float = 0.1,
 ) -> MultiAgentEnv:
     assert env_id in ENV.keys(), f'Environment {env_id} not implemented.'
     params = ENV[env_id].PARAMS
@@ -52,5 +60,14 @@ def make_env(
         area_size=None,
         max_step=max_step,
         dt=0.03,
-        params=params
+        params=params,
+        min_num_agents=min_num_agents,
+        max_num_agents=max_num_agents,
+        reward_dist2goal=reward_dist2goal,
+        reward_dist2goal_theta=reward_dist2goal_theta,
+        reward_dist2goal_threshold=reward_dist2goal_threshold,
+        reward_action_norm=reward_action_norm,
+        reward_agent_vertex_dists=reward_agent_vertex_dists,
+        reward_action_diff=reward_action_diff,
+
     )

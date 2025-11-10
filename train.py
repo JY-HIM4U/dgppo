@@ -31,6 +31,14 @@ def train(args):
         num_obs=args.obs,
         n_rays=args.n_rays,
         full_observation=args.full_observation,
+        min_num_agents=args.min_num_agents,
+        max_num_agents=args.max_num_agents,
+        reward_dist2goal=args.reward_dist2goal,
+        reward_dist2goal_theta=args.reward_dist2goal_theta,
+        reward_dist2goal_threshold=args.reward_dist2goal_threshold,
+        reward_action_norm=args.reward_action_norm,
+        reward_agent_vertex_dists=args.reward_agent_vertex_dists,
+        reward_action_diff=args.reward_action_diff,
     )
     env_test = make_env(
         env_id=args.env,
@@ -38,6 +46,15 @@ def train(args):
         num_obs=args.obs,
         n_rays=args.n_rays,
         full_observation=args.full_observation,
+
+        min_num_agents=args.min_num_agents,
+        max_num_agents=args.max_num_agents,
+        reward_dist2goal=args.reward_dist2goal,
+        reward_dist2goal_theta=args.reward_dist2goal_theta,
+        reward_dist2goal_threshold=args.reward_dist2goal_threshold,
+        reward_action_norm=args.reward_action_norm,
+        reward_agent_vertex_dists=args.reward_agent_vertex_dists,
+        reward_action_diff=args.reward_action_diff,
     )
 
     # create algorithm
@@ -140,7 +157,7 @@ def main():
     parser.add_argument("--obs", type=int, required=True)
 
     # custom arguments
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--steps", type=int, default=200000)
     parser.add_argument("--name", type=str, default=None)
     parser.add_argument("--debug", action="store_true", default=False)
@@ -177,6 +194,16 @@ def main():
     parser.add_argument("--eval-interval", type=int, default=50)
     parser.add_argument("--eval-epi", type=int, default=1)
     parser.add_argument("--save-interval", type=int, default=50)
+
+    parser.add_argument("--min-num-agents", type=int, default=3)
+    parser.add_argument("--max-num-agents", type=int, default=5)
+
+    parser.add_argument("--reward-dist2goal", type=float, default=0.06)
+    parser.add_argument("--reward-dist2goal-theta", type=float, default=0.06)
+    parser.add_argument("--reward-dist2goal-threshold", type=float, default=0.001)
+    parser.add_argument("--reward-action-norm", type=float, default=0.1)
+    parser.add_argument("--reward-agent-vertex-dists", type=float, default=0.1)
+    parser.add_argument("--reward-action-diff", type=float, default=0.1)
 
     args = parser.parse_args()
     train(args)
