@@ -157,7 +157,7 @@ def main():
     parser.add_argument("--obs", type=int, required=True)
 
     # custom arguments
-    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--steps", type=int, default=200000)
     parser.add_argument("--name", type=str, default=None)
     parser.add_argument("--debug", action="store_true", default=False)

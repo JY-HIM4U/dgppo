@@ -197,7 +197,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
 
     @property
     def n_cost(self) -> int:
-        return 4
+        return 3
 
     @property
     def cost_components(self) -> Tuple[str, ...]:
@@ -921,7 +921,9 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         agent_vertex_dist = jnp.linalg.norm(agent_vertex_length, axis=-1)
         agent_vertex_dist = jnp.where(mask, agent_vertex_dist, 1e6)
         agent_vertex_cost = agent_vertex_dist - self.agent_vertex_constraint
-        cost = jnp.stack([4 * a_cost_agent, 2 * obs_cost, 2 * obstacle_object_cost,10*agent_vertex_cost], axis=1)
+        
+        # cost = jnp.stack([4 * a_cost_agent, 2 * obs_cost, 2 * obstacle_object_cost,10*agent_vertex_cost], axis=1)
+        cost = jnp.stack([4 * a_cost_agent, 2 * obs_cost, 2 * obstacle_object_cost], axis=1)
         eps = 0.5
         cost = jnp.where(cost <= 0.0, cost - eps, cost + eps)
         cost = jnp.clip(cost, a_min=-1.0, a_max=1.0)
