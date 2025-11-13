@@ -101,6 +101,7 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
     def __init__(
             self,
             num_agents: int = 5,
+            num_groups: int = 1,
             num_obstacles: int = None,
             num_objects: int = 1,
             n_obs: int = 3,

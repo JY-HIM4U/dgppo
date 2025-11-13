@@ -35,6 +35,7 @@ def train(args):
     env_test = make_env(
         env_id=args.env,
         num_agents=args.num_agents,
+        num_groups=args.num_groups,
         num_obs=args.obs,
         n_rays=args.n_rays,
         full_observation=args.full_observation,
@@ -136,6 +137,7 @@ def main():
     # required arguments
     parser.add_argument("--env", type=str, required=True)
     parser.add_argument("-n", "--num-agents", type=int, required=True)
+    parser.add_argument("--num-groups", type=int, required=True)
     parser.add_argument("--algo", type=str, required=True)
     parser.add_argument("--obs", type=int, required=True)
 
