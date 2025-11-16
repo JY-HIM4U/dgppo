@@ -39,9 +39,11 @@ def test(args):
 
     # create environments
     num_agents = config.num_agents if args.num_agents is None else args.num_agents
+    num_groups = getattr(config, 'num_groups', 1) if args.num_groups is None else args.num_groups
     env = make_env(
         env_id=config.env if args.env is None else args.env,
         num_agents=num_agents,
+        num_groups=num_groups,
         num_obs=config.obs if args.obs is None else args.obs,
         max_step=args.max_step,
         full_observation=args.full_observation,
@@ -114,21 +116,41 @@ def test(args):
     is_unsafes = []
     rates = []
 
+    # Track episode indices for grouping rollouts
+    rollout_episode_indices = []
+    
     # test
     for i_epi in range(args.epi):
         key_x0, _ = jr.split(test_keys[i_epi], 2)
-        rollout = rollout_fn(key_x0)
-        is_unsafes.append(is_unsafe_fn(rollout.graph))
-
-        epi_reward = rollout.rewards.sum()
-        epi_cost = rollout.costs.max()
-        rewards.append(epi_reward)
-        costs.append(epi_cost)
-        rollouts.append(rollout)
-        safe_rate = 1 - is_unsafes[-1].max(axis=0).mean()
-        print(f"epi: {i_epi}, reward: {epi_reward:.3f}, cost: {epi_cost:.3f}, safe rate: {safe_rate * 100:.3f}%")
-
-        rates.append(np.array(safe_rate))
+        rollout_result = rollout_fn(key_x0)
+        
+        # Handle both single rollout and list of rollouts (multiple groups)
+        if isinstance(rollout_result, list):
+            # Multiple groups: process each group separately
+            for group_idx, rollout in enumerate(rollout_result):
+                is_unsafes.append(is_unsafe_fn(rollout.graph))
+                epi_reward = rollout.rewards.sum()
+                epi_cost = rollout.costs.max()
+                rewards.append(epi_reward)
+                costs.append(epi_cost)
+                rollouts.append(rollout)
+                rollout_episode_indices.append(i_epi)  # Track which episode this rollout belongs to
+                safe_rate = 1 - is_unsafes[-1].max(axis=0).mean()
+                print(f"epi: {i_epi}, group: {group_idx}, reward: {epi_reward:.3f}, cost: {epi_cost:.3f}, safe rate: {safe_rate * 100:.3f}%")
+                rates.append(np.array(safe_rate))
+        else:
+            # Single rollout: original behavior
+            rollout = rollout_result
+            is_unsafes.append(is_unsafe_fn(rollout.graph))
+            epi_reward = rollout.rewards.sum()
+            epi_cost = rollout.costs.max()
+            rewards.append(epi_reward)
+            costs.append(epi_cost)
+            rollouts.append(rollout)
+            rollout_episode_indices.append(i_epi)  # Track which episode this rollout belongs to
+            safe_rate = 1 - is_unsafes[-1].max(axis=0).mean()
+            print(f"epi: {i_epi}, reward: {epi_reward:.3f}, cost: {epi_cost:.3f}, safe rate: {safe_rate * 100:.3f}%")
+            rates.append(np.array(safe_rate))
 
     is_unsafe = np.max(np.stack(is_unsafes), axis=1)
     safe_mean, safe_std = (1 - is_unsafe).mean(), (1 - is_unsafe).std()
@@ -369,9 +391,49 @@ def test(args):
 
     videos_dir = pathlib.Path(path) / "videos" / f"{step}"
     videos_dir.mkdir(exist_ok=True, parents=True)
-    for ii, (rollout, Ta_is_unsafe) in enumerate(zip(rollouts, is_unsafes)):
-        safe_rate = rates[ii] * 100
-        video_name = f"n{num_agents}_epi{ii:02}_reward{rewards[ii]:.3f}_cost{costs[ii]:.3f}_sr{safe_rate:.0f}"
+    
+    # Group rollouts by episode (in case of multiple groups per episode)
+    episode_rollouts = {}
+    episode_is_unsafes = {}
+    episode_rewards = {}
+    episode_costs = {}
+    episode_rates = {}
+    
+    for ii, (rollout, Ta_is_unsafe, epi_idx) in enumerate(zip(rollouts, is_unsafes, rollout_episode_indices)):
+        if epi_idx not in episode_rollouts:
+            episode_rollouts[epi_idx] = []
+            episode_is_unsafes[epi_idx] = []
+            episode_rewards[epi_idx] = []
+            episode_costs[epi_idx] = []
+            episode_rates[epi_idx] = []
+        
+        episode_rollouts[epi_idx].append(rollout)
+        episode_is_unsafes[epi_idx].append(Ta_is_unsafe)
+        episode_rewards[epi_idx].append(rewards[ii])
+        episode_costs[epi_idx].append(costs[ii])
+        episode_rates[epi_idx].append(rates[ii])
+    
+    # Render videos - if an episode has multiple rollouts, pass them as a list
+    for epi_idx in sorted(episode_rollouts.keys()):
+        ep_rollouts = episode_rollouts[epi_idx]
+        ep_is_unsafes = episode_is_unsafes[epi_idx]
+        
+        if len(ep_rollouts) == 1:
+            # Single rollout: use original behavior
+            rollout = ep_rollouts[0]
+            Ta_is_unsafe = ep_is_unsafes[0]
+            safe_rate = episode_rates[epi_idx][0] * 100
+            video_name = f"n{num_agents}_epi{epi_idx:02}_reward{episode_rewards[epi_idx][0]:.3f}_cost{episode_costs[epi_idx][0]:.3f}_sr{safe_rate:.0f}"
+        else:
+            # Multiple rollouts: pass as list
+            rollout = ep_rollouts
+            Ta_is_unsafe = ep_is_unsafes[0]  # Use first group's unsafe mask for display
+            # Aggregate metrics for video name
+            ep_reward = sum(episode_rewards[epi_idx])
+            ep_cost = max(episode_costs[epi_idx])
+            safe_rate = episode_rates[epi_idx][0] * 100  # Use first group's safe rate
+            video_name = f"n{num_agents}_epi{epi_idx:02}_groups{len(ep_rollouts)}_reward{ep_reward:.3f}_cost{ep_cost:.3f}_sr{safe_rate:.0f}"
+        
         viz_opts = {}
         video_path = videos_dir / f"{stamp_str}_{video_name}.mp4"
         env.render_video(rollout, video_path, Ta_is_unsafe, viz_opts, dpi=args.dpi)
@@ -397,6 +459,7 @@ def main():
 
     # default arguments
     parser.add_argument("-n", "--num-agents", type=int, default=None)
+    parser.add_argument("--num-groups", type=int, default=None)
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--env", type=str, default=None)
     parser.add_argument("--offset", type=int, default=0)
