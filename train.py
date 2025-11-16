@@ -39,6 +39,9 @@ def train(args):
         reward_action_norm=args.reward_action_norm,
         reward_agent_vertex_dists=args.reward_agent_vertex_dists,
         reward_action_diff=args.reward_action_diff,
+        agent_vertex_constraint=args.agent_vertex_constraint,
+        min_stiffness=args.min_stiffness,
+        max_stiffness=args.max_stiffness,
     )
     env_test = make_env(
         env_id=args.env,
@@ -55,6 +58,9 @@ def train(args):
         reward_action_norm=args.reward_action_norm,
         reward_agent_vertex_dists=args.reward_agent_vertex_dists,
         reward_action_diff=args.reward_action_diff,
+        agent_vertex_constraint=args.agent_vertex_constraint,
+        min_stiffness=args.min_stiffness,
+        max_stiffness=args.max_stiffness,
     )
 
     # create algorithm
@@ -203,8 +209,10 @@ def main():
     parser.add_argument("--reward-dist2goal-threshold", type=float, default=0.001)
     parser.add_argument("--reward-action-norm", type=float, default=0.1)
     parser.add_argument("--reward-agent-vertex-dists", type=float, default=0.1)
-    parser.add_argument("--reward-action-diff", type=float, default=0.1)
-
+    parser.add_argument("--reward-action-diff", type=float, default=0.5)
+    parser.add_argument("--agent-vertex-constraint", type=float, default=0.30)
+    parser.add_argument("--min-stiffness", type=float, default=0.05)
+    parser.add_argument("--max-stiffness", type=float, default=0.15)
     args = parser.parse_args()
     train(args)
 

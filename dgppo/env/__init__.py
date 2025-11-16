@@ -4,7 +4,7 @@ from .base import MultiAgentEnv
 from dgppo.env.mpe import MPETarget, MPESpread, MPELine, MPEFormation, MPECorridor, MPEConnectSpread
 from dgppo.env.lidar_env import LidarSpread, LidarTarget, LidarLine, LidarBicycleTarget
 from dgppo.env.vmas import VMASWheel, VMASReverseTransport, VMASCollaborativeTransport 
-from dgppo.env.vmas_lidar import VMASCollaborativeTransportLidar
+from dgppo.env.vmas_lidar import VMASCollaborativeTransportLidar, VMASCollaborativeTransportLidar_Determined
 
 
 ENV = {
@@ -22,7 +22,8 @@ ENV = {
     'VMASReverseTransport': VMASReverseTransport,
     'VMASWheel': VMASWheel,
     'VMASCollaborativeTransport': VMASCollaborativeTransport,
-    'VMASCollaborativeTransportLidar': VMASCollaborativeTransportLidar
+    'VMASCollaborativeTransportLidar': VMASCollaborativeTransportLidar,
+    'VMASCollaborativeTransportLidar_Determined': VMASCollaborativeTransportLidar_Determined
 }
 
 
@@ -44,6 +45,9 @@ def make_env(
         reward_action_norm: float = 0.1,
         reward_agent_vertex_dists: float = 0.1,
         reward_action_diff: float = 0.1,
+        agent_vertex_constraint: float = 0.30,
+        min_stiffness: float = 0.05,
+        max_stiffness: float = 0.15,
 ) -> MultiAgentEnv:
     assert env_id in ENV.keys(), f'Environment {env_id} not implemented.'
     params = ENV[env_id].PARAMS
@@ -69,5 +73,7 @@ def make_env(
         reward_action_norm=reward_action_norm,
         reward_agent_vertex_dists=reward_agent_vertex_dists,
         reward_action_diff=reward_action_diff,
-
+        agent_vertex_constraint=agent_vertex_constraint,
+        min_stiffness=min_stiffness,
+        max_stiffness=max_stiffness,
     )

@@ -1,1 +1,2 @@
 from .vmas_collaborative_transport_lidar import VMASCollaborativeTransportLidar
+from .vmas_collaborative_transport_lidar_determined import VMASCollaborativeTransportLidar_Determined
