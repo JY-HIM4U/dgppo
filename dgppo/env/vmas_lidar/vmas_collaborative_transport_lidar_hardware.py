@@ -24,7 +24,7 @@ from dgppo.utils.graph import EdgeBlock, GetGraph, GraphsTuple
 from dgppo.utils.typing import Action, Array, Cost, Done, Info, Reward, State, PRNGKey, Pos2d
 from dgppo.utils.utils import save_anim, tree_index, jax_vmap, merge01
 from dgppo.env.base import MultiAgentEnv
-from dgppo.env.utils import get_node_goal_rng, get_lidar
+from dgppo.env.utils import get_node_goal_rng_fixedstate, get_lidar
 from dgppo.env.obstacle import Rectangle, RECTANGLE, Obstacle, Circle, CIRCLE
 import os
 os.environ['JAX_PLATFORM_NAME'] = 'cpu'
@@ -32,7 +32,7 @@ os.environ['MPLBACKEND'] = 'Agg'  # Force non-GUI backend
 jax.config.update('jax_platform_name', 'cpu')
 
 
-class VMASCollaborativeTransportLidarState_Determined(NamedTuple):
+class VMASCollaborativeTransportLidarState(NamedTuple):
     agent: State       # Agent states (positions and velocities)
     object: State      # Object state (position, velocity, angle, angular velocity)
     goal: State        # Goal position
@@ -78,9 +78,9 @@ class VMASCollaborativeTransportLidarState_Determined(NamedTuple):
         goal = self.goal if self.goal.ndim == 2 else self.goal.reshape((1, -1))
         return goal[:, 2:3]
 
-LidarEnvGraphsTuple = GraphsTuple[State, VMASCollaborativeTransportLidarState_Determined]
+LidarEnvGraphsTuple = GraphsTuple[State, VMASCollaborativeTransportLidarState]
 
-class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
+class VMASCollaborativeTransportLidar(MultiAgentEnv):
     AGENT = 0
     GOAL = 1
     OBS = 2
@@ -91,11 +91,10 @@ class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
         "comm_radius": 0.25, # 0.20
         "lidar_radius": 0.5,
         "n_rays": 32,
-        "obs_len_range": [0.1, 0.3],
+        "obs_len_range": [0.3, 0.5],
         "top_k_rays": 8,
         "n_obs": 3,
-        "default_area_size": 3.0, # 5.0 
-        "agent_vertex_constraint": 0.15
+        "default_area_size": 3.0 # 5.0 
     }
 
     def __init__(
@@ -154,7 +153,7 @@ class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
         self.max_stiffness=max_stiffness
 
         self.agent_radius = self._params["car_radius"]
-        self.agent_vertex_constraint = self._params["agent_vertex_constraint"]
+        
         self.comm_radius = self._params["comm_radius"]
         self.lidar_radius = self._params["lidar_radius"]
         self.n_rays = self._params["n_rays"]
@@ -203,7 +202,7 @@ class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
 
     @property
     def n_cost(self) -> int:
-        return 3
+        return 4
 
     @property
     def cost_components(self) -> Tuple[str, ...]:
@@ -211,34 +210,37 @@ class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
 
     def reset(self, key: Array) -> GraphsTuple:
         """Reset the environment."""
-        real_num_agents = self.num_agents
-        # stiffness = (jax.random.randint(key, (), 5, 70).astype(jnp.float32) * 0.01) # 0.05~0.7
-        stiffness = 0.15
+        random_n_agents,object_key, goal_key, obstacle_key, obstacle_theta_key = jax.random.split(key, 5)
+        n_rng_obs = self.n_obs
+        # real_num_agents = jax.random.randint(random_n_agents, shape=(), minval=self.min_num_agents, maxval=self.max_num_agents+1)
+        real_num_agents = jax.random.randint(random_n_agents, shape=(), minval=self.num_agents, maxval=self.num_agents)
+        # real_num_agents = jax.random.randint(random_n_agents, shape=(), minval=8, maxval=6)
+        # agent_probs = jnp.array([0.2, 0.2, 0.6])  # [3, 4, 5]
+        # agent_choices = jnp.array([3, 4, 5])
+        # real_num_agents = agent_choices[jax.random.choice(random_n_agents, 3, p=agent_probs)]
+        # stiffness = (jax.random.randint(key, (), 1, 11).astype(jnp.float32) * 0.1) # 0.1~1.1
+        stiffness = (jax.random.randint(key, (), int(self.min_stiffness*100), int(self.max_stiffness*100)).astype(jnp.float32) * 0.01) # 0.05~0.15
+        # stiffness = 0.08
         object_length = self.polygon_length / (2 * jnp.sin(jnp.pi / real_num_agents))
-        centers = np.array([[-1.7, -1.1]], dtype=np.float32)  # Single obstacle center
-        radii = np.array([0.15], dtype=np.float32)  # Single obstacle radius
-        # centers = np.array([[0.432, 2.340], [1.636, 1.060], [1.373, 0.053], [1.716, 2.260]], dtype=np.float32)
-        # radii = np.array([0.186, 0.185, 0.238, 0.182], dtype=np.float32)
-
-
-        obstacle = self.create_obstacles_circle(centers, radii)
-        obstacles = obstacle
-
-        obj_angle = 0.0
-        # obj_pos = jnp.array([0.057735, 0.1000])
-        # obj_pos = jnp.array([0.2, 0.2])
-        obj_pos = jnp.array([1.557735+0.8, 1.6+0.9])
-        # obj_pos = jnp.array([0.257735, 0.3000])
+        # -------------------------------
+        # 1. Sample obstacles with spacing constraints
+        # -------------------------------
+        # obstacles = self._sample_obstacles_rectangle(obstacle_key, obstacle_theta_key, n_rng_obs, object_length)
+        obstacles = self._sample_obstacles_circle_fixedstate(obstacle_key, n_rng_obs, object_length)  
+        
+        # -------------------------------
+        # 2. Sample object, goal, etc.
+        # -------------------------------
+        states, goals = get_node_goal_rng_fixedstate(
+            key, self.area_size, 2, self.num_objects, 2.0* (object_length+self.agent_radius), obstacles, self.area_size/2 )
+        obj_pos = states
+        
+        obj_angle = jax.random.uniform(object_key, minval=0.0, maxval=2 * np.pi)
         angles = jnp.array([obj_angle + i * 2 * jnp.pi / real_num_agents for i in range(self.num_agents)])
         agent_pos = obj_pos + object_length * jnp.stack([jnp.cos(angles), jnp.sin(angles)], axis=-1)
-
-        # ## Triangel
-        # agent_pos= jnp.array([
-        #     [0.0, 0.0],
-        #     [0.1732, 0.1],
-        #     [0.0000, 0.2]
-        # ])
-        
+        obj_cen_halfwidth = self.half_width - object_length
+        obj_radius = 0.98 * obj_cen_halfwidth
+        # Initialize velocities as zero
         obj_vel = jnp.zeros(2)
         obj_angvel = jnp.array(0.0)
         agent_vel = jnp.zeros((self.num_agents, 2))
@@ -247,18 +249,17 @@ class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
         agent_state = agent_state.at[:, 2:4].set(agent_vel)
         
         # Sample goal position opposite to object
-        # goal_center = goals
-        # goal_center = jnp.array([
-        #     [1.000, 0.800]
-        # ])
-        # goal_theta = jnp.array([[np.pi/2]])
-        
-        # goal_center = jnp.array([[1.163, 1.953]])
-        # goal_theta = jnp.array([[1.634]])
-        goal_center = jnp.array([[0.2, 1.2]])
-        goal_theta = jnp.array([[0.0]])
+        goal_center = goals
 
+        # Set the number of goals equal to the number of agents.
         self.num_goals = self.num_objects
+        goal_theta = jax.random.uniform(goal_key, (self.num_goals,), minval=0, maxval=2 * np.pi)            
+        # Compute three vertices for the goal.
+        # These vertices form an equilateral triangle centered at goal_center.
+        # The distance from goal_center to each vertex is object_length.
+        angles = jnp.array([i * 2 * jnp.pi / real_num_agents for i in range(self.num_agents)])  # for three vertices
+        goal_vertices = goal_center + object_length * jnp.stack([jnp.cos(angles), jnp.sin(angles)], axis=-1)
+
         # Goal state with static dimensions (state_dim, e.g., 6).
         goal_state = jnp.zeros((self.num_goals, self.state_dim), dtype=jnp.float32)
         goal_state = goal_state.at[:, :2].set(goal_center)
@@ -285,8 +286,7 @@ class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
         # Initialize previous action as zeros
         prev_action = jnp.zeros((self.num_agents, self.action_dim), dtype=jnp.float32)
         
-        
-        init_state = VMASCollaborativeTransportLidarState_Determined(
+        init_state = VMASCollaborativeTransportLidarState(
             agent=agent_state,
             goal=goal_state,
             object=object_state,
@@ -437,7 +437,11 @@ class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
             count, attempts, key, pos, radius = state
             # Generate candidate values using JAX's random functions.
             key, subkey = jax.random.split(key)
-            candidate_pos = jax.random.uniform(subkey, shape=(2,), minval=0, maxval=self.area_size)
+            # Sample positions with x > 0.5 and y > 0.5 (within arena bounds)
+            lower = jnp.array([0.5, 0.5], dtype=jnp.float32)
+            upper = jnp.array([self.area_size, self.area_size], dtype=jnp.float32)
+            rnd = jax.random.uniform(subkey, shape=(2,), minval=0.0, maxval=1.0)
+            candidate_pos = lower + rnd * (upper - lower)
             
             key, subkey = jax.random.split(key)
             # For circles, we use a single radius parameter
@@ -499,7 +503,109 @@ class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
             operand=None,
         )
         return obstacles
+    def _sample_obstacles_circle_fixedstate(self, obstacle_key, n_rng_obs, object_length):
+        """JIT-compatible circle obstacle sampling using JAX primitives.
+        
+        Returns obstacles with static shape (n_rng_obs, ...) regardless of how many candidates are accepted.
+        In the case no obstacles are accepted, a dummy obstacle is returned with zeros.
+        """
+        if n_rng_obs == 0:
+            return None
 
+        max_attempts = 20
+        # Ensure n_rng_obs is a Python int.
+        n_rng_obs = int(n_rng_obs)
+
+        # Pre-allocate arrays with fixed shape (n_rng_obs, ...)
+        count_init = jnp.array(0)
+        attempts_init = jnp.array(0)
+        pos_init = jnp.zeros((n_rng_obs, 2), dtype=jnp.float32)
+        radius_init = jnp.zeros((n_rng_obs,), dtype=jnp.float32)
+        state_init = (count_init, attempts_init, obstacle_key, pos_init, radius_init)
+
+        def cond_fn(state):
+            count, attempts, key, pos, radius = state
+            return jnp.logical_and(count < n_rng_obs, attempts < max_attempts)
+
+        def body_fn(state):
+            count, attempts, key, pos, radius = state
+            # Generate candidate values using JAX's random functions.
+            key, subkey = jax.random.split(key)
+            # Sample uniformly in the arena, then ensure (x > 0.6) OR (y > 0.6).
+            pos_base = jax.random.uniform(subkey, shape=(2,), minval=0.0, maxval=self.area_size)
+            need_adjust = jnp.logical_and(pos_base[0] <= 0.6, pos_base[1] <= 0.6)
+            # If both <= 0.6, randomly bump either x or y above 0.6
+            key, choose_key = jax.random.split(key)
+            key, val_key = jax.random.split(key)
+            choose_x = jax.random.bernoulli(choose_key, 0.5)
+            new_val = jax.random.uniform(val_key, (), minval=0.6, maxval=self.area_size)
+            def set_x(_):
+                return pos_base.at[0].set(new_val)
+            def set_y(_):
+                return pos_base.at[1].set(new_val)
+            adjusted = jax.lax.cond(choose_x, set_x, set_y, operand=None)
+            candidate_pos = jax.lax.cond(need_adjust, lambda _: adjusted, lambda _: pos_base, operand=None)
+            
+            key, subkey = jax.random.split(key)
+            # For circles, we use a single radius parameter
+            min_radius, max_radius = self._params["obs_len_range"][0]/2, self._params["obs_len_range"][1]/2
+            candidate_radius = jax.random.uniform(
+                subkey, shape=(), minval=min_radius, maxval=max_radius
+            )
+
+            # Check candidate against already accepted obstacles.
+            # We loop over a fixed range [0, n_rng_obs) and for indices i < count, check separation.
+            def check_candidate(i, valid):
+                def do_check(_):
+                    dist = jnp.linalg.norm(candidate_pos - pos[i])
+                    # For circles, we just need to check if the distance is greater than the sum of radii plus margin
+                    min_separation = candidate_radius + radius[i] + (self.agent_radius + object_length)*3.0
+                    return jnp.logical_and(valid, dist >= min_separation)
+                # Only check if i < count; otherwise, leave valid unchanged.
+                return jax.lax.cond(jnp.less(i, count), do_check, lambda _: valid, operand=None)
+
+            accept_candidate = jax.lax.fori_loop(0, n_rng_obs, check_candidate, True)
+            # If count==0, automatically accept.
+            accept_candidate = jax.lax.cond(jnp.greater(count, 0), lambda _: accept_candidate, lambda _: True, operand=None)
+
+            # Conditionally update the arrays if candidate is accepted.
+            new_pos = jax.lax.cond(
+                accept_candidate,
+                lambda _: jax.lax.dynamic_update_slice(pos, candidate_pos[None, :], (count, 0)),
+                lambda _: pos,
+                operand=None,
+            )
+            new_radius = jax.lax.cond(
+                accept_candidate,
+                lambda _: jax.lax.dynamic_update_slice(radius, jnp.array([candidate_radius], dtype=jnp.float32), (count,)),
+                lambda _: radius,
+                operand=None,
+            )
+            new_count = count + jax.lax.select(accept_candidate, 1, 0)
+            new_attempts = attempts + 1
+            return (new_count, new_attempts, key, new_pos, new_radius)
+
+        final_state = jax.lax.while_loop(cond_fn, body_fn, state_init)
+        final_count, final_attempts, final_key, final_pos, final_radius = final_state
+
+        # accepted_positions, accepted_radius are of fixed shapes.
+        accepted_positions = final_pos  # shape (n_rng_obs, 2)
+        accepted_radius = final_radius  # shape (n_rng_obs,)
+
+        # Both branches below return an obstacle with the same static shape.
+        obstacles = jax.lax.cond(
+            jnp.greater(final_count, 0),
+            lambda _: self.create_obstacles_circle(
+                accepted_positions,
+                accepted_radius,
+            ),
+            lambda _: self.create_obstacles_circle(
+                jnp.zeros((n_rng_obs, 2), dtype=jnp.float32),
+                jnp.zeros((n_rng_obs,), dtype=jnp.float32),
+            ),
+            operand=None,
+        )
+        return obstacles
     def add_uniform_noise(self, data: Array, key: Array, noise_scale: float = 0.05) -> Array:
         """Add uniform noise in range ±noise_scale% of original values.
         
@@ -626,7 +732,7 @@ class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
         object = entities[0]
         agents = entities[1:]
 
-        new_state = VMASCollaborativeTransportLidarState_Determined(
+        new_state = VMASCollaborativeTransportLidarState(
             agent=jnp.stack([
                 jnp.concatenate([
                     agent.state.pos,
@@ -660,7 +766,7 @@ class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
 
         return self.get_graph(new_state, lidar_data_next), reward, cost, done, info
     def get_reward(self, graph: GraphsTuple, action: Action) -> Reward:
-        env_state: VMASCollaborativeTransportLidarState_Determined = graph.env_states
+        env_state: VMASCollaborativeTransportLidarState = graph.env_states
         # object_length = (self._params["comm_radius"]-0.2) / (2 * jnp.sin(jnp.pi / env_state.real_num_agents))
         object_length = self.polygon_length / (2 * jnp.sin(jnp.pi / env_state.real_num_agents))
         object_pos = env_state.object_pos
@@ -761,7 +867,7 @@ class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
 
     def get_cost(self, graph: GraphsTuple) -> Cost:
         
-        env_state: VMASCollaborativeTransportLidarState_Determined = graph.env_states
+        env_state: VMASCollaborativeTransportLidarState = graph.env_states
         # object_length = (self._params["comm_radius"]-0.2)  / (2 * jnp.sin(jnp.pi / env_state.real_num_agents))
         object_length = self.polygon_length / (2 * jnp.sin(jnp.pi / env_state.real_num_agents))
         agent_pos = env_state.a_pos  # shape: (self.num_agents, 2)
@@ -929,8 +1035,8 @@ class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
         agent_vertex_dist = jnp.where(mask, agent_vertex_dist, 1e6)
         agent_vertex_cost = agent_vertex_dist - self.agent_vertex_constraint
         
-        # cost = jnp.stack([4 * a_cost_agent, 2 * obs_cost, 2 * obstacle_object_cost,10*agent_vertex_cost], axis=1)
-        cost = jnp.stack([4 * a_cost_agent, 2 * obs_cost, 2 * obstacle_object_cost], axis=1)
+        cost = jnp.stack([4 * a_cost_agent, 2 * obs_cost, 2 * obstacle_object_cost,10*agent_vertex_cost], axis=1)
+        # cost = jnp.stack([4 * a_cost_agent, 2 * obs_cost, 2 * obstacle_object_cost], axis=1)
         eps = 0.5
         cost = jnp.where(cost <= 0.0, cost - eps, cost + eps)
         cost = jnp.clip(cost, a_min=-1.0, a_max=1.0)
@@ -942,7 +1048,7 @@ class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
     
     def state2feat(self, state: State) -> Array:
         return state
-    def edge_blocks(self, state: VMASCollaborativeTransportLidarState_Determined, lidar_data: Optional[Pos2d] = None) -> list[EdgeBlock]:
+    def edge_blocks(self, state: VMASCollaborativeTransportLidarState, lidar_data: Optional[Pos2d] = None) -> list[EdgeBlock]:
         # Agent-Agent edges (remain unchanged)
         mask = jnp.arange(self.num_agents) < state.real_num_agents  # shape: (self.num_agents,)
     
@@ -1006,7 +1112,7 @@ class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
         # return [agent_agent_edges] + agent_goal_edges + agent_obs_edges
         return [agent_agent_edges] + agent_obs_edges
 
-    def get_graph(self, state: VMASCollaborativeTransportLidarState_Determined, lidar_data: Pos2d = None) -> GraphsTuple:
+    def get_graph(self, state: VMASCollaborativeTransportLidarState, lidar_data: Pos2d = None) -> GraphsTuple:
         """Create a graph representation of the environment state."""
         # Use the static self.params["n_obs"] to determine lidar hits.
         n_hits = self.top_k_rays * self.num_agents if self._params["n_obs"] > 0 else 0
@@ -1064,9 +1170,9 @@ class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
 
         
         node_type = jnp.ones(n_nodes, dtype=jnp.int32)
-        node_type = node_type.at[: self.num_agents].set(self.AGENT)
+        node_type = node_type.at[: self.num_agents].set(VMASCollaborativeTransportLidar.AGENT)
         if n_hits > 0:
-            node_type = node_type.at[-n_hits:].set(self.OBS)
+            node_type = node_type.at[-n_hits:].set(VMASCollaborativeTransportLidar.OBS)
         
         edge_blocks = self.edge_blocks(state, lidar_data)
             
@@ -1117,7 +1223,7 @@ class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
             **kwargs,
     ) -> None:
         T_graph = rollout.graph
-        T_env_states: VMASCollaborativeTransportLidarState_Determined = T_graph.env_states
+        T_env_states: VMASCollaborativeTransportLidarState = T_graph.env_states
         T_costs = rollout.costs
         graph0 = tree_index(T_graph, 0)
         obs_color = "#8a0000"
@@ -1275,7 +1381,7 @@ class VMASCollaborativeTransportLidar_Determined(MultiAgentEnv):
 
         def update(kk: int) -> list[plt.Artist]:
             # Get the current environment state and graph.
-            env_state: VMASCollaborativeTransportLidarState_Determined = tree_index(T_env_states, kk)
+            env_state: VMASCollaborativeTransportLidarState = tree_index(T_env_states, kk)
             cur_graph = tree_index(T_graph, kk)
             
             # Update agent positions.

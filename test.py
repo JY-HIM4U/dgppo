@@ -126,7 +126,65 @@ def test(args):
         costs.append(epi_cost)
         rollouts.append(rollout)
         safe_rate = 1 - is_unsafes[-1].max(axis=0).mean()
-        print(f"epi: {i_epi}, reward: {epi_reward:.3f}, cost: {epi_cost:.3f}, safe rate: {safe_rate * 100:.3f}%")
+        real_num_agents = int(np.array(rollout.graph.env_states.real_num_agents[0]))
+        print(f"epi: {i_epi}, n_real={real_num_agents}, reward: {epi_reward:.3f}, cost: {epi_cost:.3f}, safe rate: {safe_rate * 100:.3f}%")
+        # Print environment info at t=0: goal pose, object pos, and obstacles (compact)
+        env_states = rollout.graph.env_states
+        try:
+            gpos = np.asarray(env_states.goal_pos)
+            gpos0 = gpos[0] if gpos.ndim >= 1 else gpos
+            gvec = gpos0[0] if getattr(gpos0, "ndim", 0) >= 2 else gpos0
+            gvec = np.ravel(gvec)
+            gx, gy = float(gvec[0]), float(gvec[1])
+            gtheta = np.asarray(env_states.goal_theta)
+            gtheta0 = gtheta[0] if gtheta.ndim >= 1 else gtheta
+            gtheta_vec = np.ravel(gtheta0)
+            gtheta_s = float(gtheta_vec[0])
+            print(f"  goal: pos=({gx:.3f}, {gy:.3f}), theta={gtheta_s:.3f}")
+        except Exception:
+            print("  goal: unavailable")
+        try:
+            opos = np.asarray(env_states.object_pos)
+            opos0 = opos[0] if opos.ndim >= 1 else opos
+            ovec = opos0[0] if getattr(opos0, "ndim", 0) >= 2 else opos0
+            ovec = np.ravel(ovec)
+            ox, oy = float(ovec[0]), float(ovec[1])
+            print(f"  object: pos=({ox:.3f}, {oy:.3f})")
+        except Exception:
+            print("  object: unavailable")
+        obs = env_states.obstacle
+        if obs is None:
+            print("  obstacles: none")
+        else:
+            centers = np.asarray(getattr(obs, "center", []))
+            if centers.ndim >= 3:
+                centers = centers[0]
+            centers = np.atleast_2d(centers) if centers.size else np.zeros((0, 2))
+            n = int(centers.shape[0])
+            print(f"  obstacles: n={n}")
+            # Optional fields
+            radii = getattr(obs, "radius", None)
+            thetas = getattr(obs, "theta", None)
+            radii_arr = None if radii is None else np.asarray(radii)
+            thetas_arr = None if thetas is None else np.asarray(thetas)
+            if radii_arr is not None and radii_arr.ndim >= 2:
+                radii_arr = radii_arr[0]
+            if thetas_arr is not None and thetas_arr.ndim >= 2:
+                thetas_arr = thetas_arr[0]
+            # k = min(n, 5)
+            k = n
+            for i in range(k):
+                cx, cy = float(centers[i, 0]), float(centers[i, 1])
+                extra = ""
+                if radii_arr is not None and radii_arr.size > i:
+                    extra = f", r={float(radii_arr[i]):.3f}"
+                elif thetas_arr is not None and thetas_arr.size > i:
+                    extra = f", theta={float(thetas_arr[i]):.3f}"
+                print(f"    obs{i}: cx={cx:.3f}, cy={cy:.3f}{extra}")
+        # print(f"epi: {i_epi}, reward: {epi_reward:.3f}, cost: {epi_cost:.3f}, safe rate: {safe_rate * 100:.3f}%")
+        with open(os.path.join(path, "test_log.csv"), "a") as f:
+            f.write(f"{real_num_agents},{i_epi},{env.max_episode_steps},"
+                    f"{env.area_size},{env.params['n_obs']},{epi_reward:.3f},{epi_cost:.3f},{safe_rate * 100:.3f}\n")
 
         rates.append(np.array(safe_rate))
 
@@ -141,10 +199,10 @@ def test(args):
 
     # save results
     if args.log:
-        with open(os.path.join(path, "test_log.csv"), "a") as f:
-            f.write(f"{env.num_agents},{args.epi},{env.max_episode_steps},"
-                    f"{env.area_size},{env.params['n_obs']},"
-                    f"{safe_mean * 100:.3f},{safe_std * 100:.3f}\n")
+        # with open(os.path.join(path, "test_log.csv"), "a") as f:
+        #     f.write(f"{env.num_agents},{args.epi},{env.max_episode_steps},"
+        #             f"{env.area_size},{env.params['n_obs']},"
+        #             f"{safe_mean * 100:.3f},{safe_std * 100:.3f}\n")
         
         # Save rollout actions as CSV files
         actions_dir = os.path.join(path, "actions")

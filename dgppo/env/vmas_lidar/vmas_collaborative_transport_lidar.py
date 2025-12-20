@@ -213,6 +213,8 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         random_n_agents,object_key, goal_key, obstacle_key, obstacle_theta_key = jax.random.split(key, 5)
         n_rng_obs = self.n_obs
         real_num_agents = jax.random.randint(random_n_agents, shape=(), minval=self.min_num_agents, maxval=self.max_num_agents+1)
+        # real_num_agents = jax.random.randint(random_n_agents, shape=(), minval=self.num_agents, maxval=self.num_agents)
+        # real_num_agents = jax.random.randint(random_n_agents, shape=(), minval=8, maxval=6)
         # agent_probs = jnp.array([0.2, 0.2, 0.6])  # [3, 4, 5]
         # agent_choices = jnp.array([3, 4, 5])
         # real_num_agents = agent_choices[jax.random.choice(random_n_agents, 3, p=agent_probs)]
@@ -1132,7 +1134,8 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         n_goal = self.num_goals
         n_object = self.num_objects
         n_hits = self.top_k_rays * self.num_agents if self._params["n_obs"] > 0 else 0
-        total_nodes = n_agent + n_goal + n_object + n_hits
+        # Graph nodes are: agents + lidar hits (no explicit goal/object nodes)
+        total_nodes = n_agent + n_hits
 
         fig, ax = plt.subplots(1, 1, figsize=(10, 10), dpi=dpi)
         # ax.set_xlim(-1.01 * self.area_size, 1.01 * self.area_size)
@@ -1335,10 +1338,9 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
             if e_edge_index.shape[1] > 0:
                 e_start = all_pos[e_edge_index[0, :]]
                 e_end = all_pos[e_edge_index[1, :]]
-                
                 e_lines = np.stack([e_start, e_end], axis=1)
                 e_is_goal = (e_edge_index[0, :] >= n_agent) & (e_edge_index[0, :] < n_agent + n_goal)
-                e_is_obs = (e_edge_index[0, :] >= n_agent+ n_goal+n_object)
+                e_is_obs = (e_edge_index[0, :] >= n_agent)
                         
                 e_colors = [edge_goal_color if e_is_goal[ii] else "0.2" for ii in range(e_lines.shape[0])]
                 e_colors = [edge_obs_color if e_is_obs[ii] else "0.2" for ii in range(e_lines.shape[0])]
@@ -1357,3 +1359,4 @@ class VMASCollaborativeTransportLidar(MultiAgentEnv):
         anim_T = len(T_graph.n_node)
         ani = FuncAnimation(fig, update, frames=anim_T, init_func=init_fn, interval=mspf, blit=True)
         save_anim(ani, video_path)
+

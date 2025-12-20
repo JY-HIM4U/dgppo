@@ -164,7 +164,7 @@ def main():
 
     # custom arguments
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--steps", type=int, default=200000)
+    parser.add_argument("--steps", type=int, default=100000)
     parser.add_argument("--name", type=str, default=None)
     parser.add_argument("--debug", action="store_true", default=False)
     parser.add_argument("--cost-weight", type=float, default=0.)
@@ -209,10 +209,10 @@ def main():
     parser.add_argument("--reward-dist2goal-threshold", type=float, default=0.001)
     parser.add_argument("--reward-action-norm", type=float, default=0.1)
     parser.add_argument("--reward-agent-vertex-dists", type=float, default=0.1)
-    parser.add_argument("--reward-action-diff", type=float, default=0.5)
-    parser.add_argument("--agent-vertex-constraint", type=float, default=0.30)
+    parser.add_argument("--reward-action-diff", type=float, default=0.1)
+    parser.add_argument("--agent-vertex-constraint", type=float, default=0.2)
     parser.add_argument("--min-stiffness", type=float, default=0.05)
-    parser.add_argument("--max-stiffness", type=float, default=0.15)
+    parser.add_argument("--max-stiffness", type=float, default=0.30)
     args = parser.parse_args()
     train(args)
 
